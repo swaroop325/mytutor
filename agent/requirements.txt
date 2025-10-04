@@ -1,0 +1,7 @@
+bedrock-agentcore
+strands-agents
+bedrock-agentcore-starter-toolkit
+playwright
+fastapi
+uvicorn[standard]
+websockets
