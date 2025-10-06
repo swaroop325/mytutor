@@ -19,8 +19,24 @@ from playwright.async_api import async_playwright, Page, Browser, Download
 from strands import Agent
 import boto3
 from pathlib import Path
+from datetime import datetime, timedelta
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
+import urllib.parse
 
+# Initialize app
 app = BedrockAgentCoreApp()
+
+# CORS configuration for frontend communication
+os.environ.setdefault("ALLOW_ORIGINS", "http://localhost:5173,http://localhost:3000")
+os.environ.setdefault("ALLOW_CREDENTIALS", "true")
+os.environ.setdefault("ALLOW_METHODS", "*")
+os.environ.setdefault("ALLOW_HEADERS", "*")
+
+print("🔧 Configuring CORS for frontend access...")
+
+# Alternative approach: directly modify response headers in the invoke handler
+# This will be handled at the end of the file
 
 # AWS Configuration
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
@@ -192,10 +208,24 @@ Learning Outcomes:
         5. Process each module
         6. Create comprehensive summary
         """
+        client = None
+        browser = None
+        playwright = None
+
         try:
-            # Create MCP browser session
-            client = BrowserClient(region=self.region)
-            client.start()
+            # Create MCP browser session with retry logic
+            max_retries = 2
+            for attempt in range(max_retries):
+                try:
+                    client = BrowserClient(region=self.region)
+                    client.start()
+                    break
+                except Exception as e:
+                    if "limit" in str(e).lower() and attempt < max_retries - 1:
+                        print(f"⚠️ Connection limit reached, retrying in 5 seconds... (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(5)
+                    else:
+                        raise
 
             # Get WebSocket details for DCV streaming
             ws_url, headers = client.generate_ws_headers()
@@ -207,18 +237,50 @@ Learning Outcomes:
                 headers=headers
             )
 
-            # Get or create page
+            # Get or create page with anti-detection settings
             contexts = browser.contexts
             if contexts:
                 context = contexts[0]
                 pages = context.pages
                 page = pages[0] if pages else await context.new_page()
             else:
-                context = await browser.new_context()
+                # Create context with realistic user agent and viewport
+                context = await browser.new_context(
+                    user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='en-US',
+                    timezone_id='America/New_York'
+                )
                 page = await context.new_page()
 
-            # Navigate to course URL
-            await page.goto(course_url, wait_until="networkidle")
+            # Set extra HTTP headers to appear more like a real browser
+            await page.set_extra_http_headers({
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0'
+            })
+
+            # Navigate to course URL with longer timeout
+            await page.goto(course_url, wait_until="networkidle", timeout=60000)
+
+            # Extract MCP session ID from WebSocket URL
+            # Format: wss://bedrock-agentcore.{region}.amazonaws.com/browser-streams/aws.browser.v1/sessions/{SESSION_ID}/automation
+            import re
+            mcp_session_match = re.search(r'/sessions/([^/]+)/', ws_url)
+            mcp_session_id = mcp_session_match.group(1) if mcp_session_match else None
+
+            # Construct AWS Console URL
+            console_url = None
+            if mcp_session_id:
+                console_url = f"https://{self.region}.console.aws.amazon.com/bedrock-agentcore/builtInTools/browser/aws.browser.v1/session/{mcp_session_id}#"
 
             # Store session
             active_sessions[session_id] = {
@@ -231,6 +293,8 @@ Learning Outcomes:
                 "user_id": user_id,
                 "ws_url": ws_url,
                 "dcv_headers": headers,
+                "mcp_session_id": mcp_session_id,
+                "console_url": console_url,
                 "status": "awaiting_login",
                 "modules": [],
                 "current_module": 0,
@@ -242,6 +306,8 @@ Learning Outcomes:
             return {
                 "status": "awaiting_login",
                 "session_id": session_id,
+                "mcp_session_id": mcp_session_id,
+                "console_url": console_url,
                 "dcv_url": ws_url,
                 "dcv_headers": headers,
                 "message": "Browser session created. Please log in.",
@@ -249,9 +315,31 @@ Learning Outcomes:
             }
 
         except Exception as e:
+            # Cleanup on error
+            if browser:
+                try:
+                    await browser.close()
+                except:
+                    pass
+            if playwright:
+                try:
+                    await playwright.stop()
+                except:
+                    pass
+            if client:
+                try:
+                    client.stop()
+                except:
+                    pass
+
+            error_msg = str(e)
+            # Provide helpful message for connection limit errors
+            if "limit" in error_msg.lower():
+                error_msg = "Connection limit reached. Please wait a moment and try again, or close any open browser sessions in AWS Console."
+
             return {
                 "status": "error",
-                "message": f"Failed to start processing: {str(e)}"
+                "message": f"Failed to start processing: {error_msg}"
             }
 
     async def continue_after_login(self, session_id: str) -> Dict[str, Any]:
@@ -593,6 +681,9 @@ Format as JSON.
         return {
             "status": session.get("status"),
             "session_id": session_id,
+            "mcp_session_id": session.get("mcp_session_id"),
+            "console_url": session.get("console_url"),
+            "course_url": session.get("course_url"),
             "current_module": session.get("current_module", 0),
             "total_modules": session.get("total_modules", 0),
             "progress": session.get("progress", 0),
@@ -659,15 +750,27 @@ Format as JSON.
                     namespace_prefix="/"
                 )
 
-            # Parse and format results
+            # Parse and format results - filter for summaries and extract structured data
             courses = []
+            course_map = {}  # Group by course_id
+
             for record in memory_records:
-                courses.append({
-                    "id": record.get("memoryRecordId"),
-                    "content": record.get("content", {}).get("text", ""),
-                    "created_at": record.get("createdAt"),
-                    "namespace": record.get("namespace")
-                })
+                namespace = record.get("namespace", "")
+                content_text = record.get("content", {}).get("text", "")
+
+                # Check if this is a summary record
+                if "_summary" in namespace:
+                    # Extract course_id from namespace
+                    course_id = namespace.split("/")[-1].replace("_summary", "")
+
+                    # Parse summary content
+                    course_data = self._parse_course_summary(content_text, course_id)
+                    course_data["id"] = record.get("memoryRecordId")
+                    course_data["created_at"] = record.get("createdAt")
+                    course_data["namespace"] = namespace
+
+                    course_map[course_id] = course_data
+                    courses.append(course_data)
 
             return {
                 "status": "success",
@@ -680,6 +783,229 @@ Format as JSON.
                 "status": "error",
                 "message": f"Failed to retrieve courses: {str(e)}",
                 "courses": []
+            }
+
+    def _parse_course_summary(self, content: str, course_id: str) -> Dict[str, Any]:
+        """Parse summary text content into structured data."""
+        import re
+
+        # Default values
+        parsed = {
+            "course_id": course_id,
+            "title": "Unknown Course",
+            "total_modules": 0,
+            "total_videos": 0,
+            "total_audios": 0,
+            "total_files": 0,
+            "overview": "",
+            "key_topics": [],
+            "learning_outcomes": []
+        }
+
+        # Extract title
+        title_match = re.search(r"Title:\s*(.+)", content)
+        if title_match:
+            parsed["title"] = title_match.group(1).strip()
+
+        # Extract total modules
+        modules_match = re.search(r"Total Modules:\s*(\d+)", content)
+        if modules_match:
+            parsed["total_modules"] = int(modules_match.group(1))
+
+        # Extract overview (first paragraph after "Overview:")
+        overview_match = re.search(r"Overview:\s*([^\n]+(?:\n[^\n]+)*?)(?=\n\n|\nKey Topics:|\Z)", content, re.MULTILINE)
+        if overview_match:
+            parsed["overview"] = overview_match.group(1).strip()
+
+        # Extract key topics
+        topics_match = re.search(r"Key Topics:\s*([^\n]+)", content)
+        if topics_match:
+            topics_str = topics_match.group(1).strip()
+            parsed["key_topics"] = [t.strip() for t in topics_str.split(",")]
+
+        # Extract learning outcomes
+        outcomes_section = re.search(r"Learning Outcomes:(.*?)(?=\n\n|\Z)", content, re.DOTALL)
+        if outcomes_section:
+            outcomes_text = outcomes_section.group(1)
+            outcomes = re.findall(r"-\s*(.+)", outcomes_text)
+            parsed["learning_outcomes"] = [o.strip() for o in outcomes]
+
+        return parsed
+
+    def get_course_details(self, user_id: str, course_id: str) -> Dict[str, Any]:
+        """Retrieve full course details including all modules."""
+        # Lazily initialize memory on first use
+        if self.memory is None:
+            self.memory = self._init_memory()
+
+        if not self.memory:
+            return {
+                "status": "error",
+                "message": "Memory not initialized"
+            }
+
+        try:
+            session_manager = MemorySessionManager(
+                memory_id=self.memory.get("id"),
+                region_name=self.region
+            )
+
+            # Create a temporary session to query memory
+            session = session_manager.create_memory_session(
+                actor_id=user_id,
+                session_id=f"query_{int(datetime.utcnow().timestamp())}"
+            )
+
+            # Get all memory records for this course
+            memory_records = session.list_long_term_memory_records(
+                namespace_prefix=f"/"
+            )
+
+            # Separate modules and summary
+            modules = []
+            summary = None
+
+            for record in memory_records:
+                namespace = record.get("namespace", "")
+                content_text = record.get("content", {}).get("text", "")
+
+                if course_id in namespace:
+                    if "_summary" in namespace:
+                        # This is the summary
+                        summary = self._parse_course_summary(content_text, course_id)
+                    else:
+                        # This is a module
+                        module_data = self._parse_module_content(content_text)
+                        module_data["record_id"] = record.get("memoryRecordId")
+                        modules.append(module_data)
+
+            # Sort modules by order
+            modules.sort(key=lambda x: x.get("order", 0))
+
+            if not summary:
+                return {
+                    "status": "error",
+                    "message": "Course not found"
+                }
+
+            # Combine summary and modules
+            return {
+                "status": "success",
+                "course": {
+                    **summary,
+                    "modules": modules
+                }
+            }
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to retrieve course details: {str(e)}"
+            }
+
+    def _parse_module_content(self, content: str) -> Dict[str, Any]:
+        """Parse module text content into structured data."""
+        import re
+
+        parsed = {
+            "title": "Unknown Module",
+            "url": "",
+            "order": 0,
+            "text_preview": "",
+            "video_count": 0,
+            "audio_count": 0,
+            "file_count": 0
+        }
+
+        # Extract module title
+        title_match = re.search(r"Module:\s*(.+)", content)
+        if title_match:
+            parsed["title"] = title_match.group(1).strip()
+
+        # Extract URL
+        url_match = re.search(r"URL:\s*(.+)", content)
+        if url_match:
+            parsed["url"] = url_match.group(1).strip()
+
+        # Extract order
+        order_match = re.search(r"Order:\s*(\d+)", content)
+        if order_match:
+            parsed["order"] = int(order_match.group(1))
+
+        # Extract content preview
+        content_match = re.search(r"Content:\s*(.*?)(?=\n\nVideos:|\nVideos:|\Z)", content, re.DOTALL)
+        if content_match:
+            full_content = content_match.group(1).strip()
+            parsed["text_preview"] = full_content[:500] if len(full_content) > 500 else full_content
+
+        # Extract counts
+        videos_match = re.search(r"Videos:\s*(\d+)", content)
+        if videos_match:
+            parsed["video_count"] = int(videos_match.group(1))
+
+        audios_match = re.search(r"Audio:\s*(\d+)", content)
+        if audios_match:
+            parsed["audio_count"] = int(audios_match.group(1))
+
+        files_match = re.search(r"Files:\s*(\d+)", content)
+        if files_match:
+            parsed["file_count"] = int(files_match.group(1))
+
+        return parsed
+
+    def get_dcv_presigned_url(self, session_id: str, mcp_session_id: str) -> Dict[str, Any]:
+        """
+        Get presigned DCV live view URL using BrowserClient's generate_live_view_url() method.
+
+        Args:
+            session_id: Session ID
+            mcp_session_id: MCP browser session ID
+
+        Returns:
+            Presigned live-view URL for DCV authentication
+        """
+        try:
+            # Get session info
+            if session_id not in active_sessions:
+                return {
+                    "status": "error",
+                    "message": "Session not found"
+                }
+
+            session = active_sessions[session_id]
+
+            # Get BrowserClient from session
+            client = session.get("client")
+            if not client:
+                return {
+                    "status": "error",
+                    "message": "Browser client not found in session"
+                }
+
+            # Generate presigned URL for DCV live view
+            # This returns a properly formatted presigned URL with SigV4 authentication
+            import logging
+            logger = logging.getLogger(__name__)
+
+            presigned_url = client.generate_live_view_url(expires=300)  # 5 minutes expiration
+
+            logger.info(f"✅ Generated DCV presigned URL for session {mcp_session_id}")
+            logger.info(f"   URL: {presigned_url[:100]}...")
+            logger.info(f"   URL length: {len(presigned_url)} characters")
+
+            return {
+                "status": "success",
+                "presignedUrl": presigned_url,
+                "sessionId": mcp_session_id
+            }
+
+        except Exception as e:
+            import traceback
+            print(f"❌ Error generating presigned URL: {e}")
+            print(traceback.format_exc())
+            return {
+                "status": "error",
+                "message": f"Failed to generate presigned URL: {str(e)}"
             }
 
 
@@ -734,6 +1060,18 @@ def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
             result = processor.get_saved_courses(user_id, query)
             return result
 
+        elif action == "get_course_details":
+            user_id = payload.get("user_id", "unknown")
+            course_id = payload.get("course_id")
+            result = processor.get_course_details(user_id, course_id)
+            return result
+
+        elif action == "get_dcv_url":
+            session_id = payload.get("session_id")
+            mcp_session_id = payload.get("mcp_session_id")
+            result = processor.get_dcv_presigned_url(session_id, mcp_session_id)
+            return result
+
         else:
             return {
                 "status": "error",
@@ -748,4 +1086,25 @@ def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
+    # Add CORS middleware before running the app
+    try:
+        from fastapi.middleware.cors import CORSMiddleware
+        import inspect
+
+        # Get the actual FastAPI instance from BedrockAgentCoreApp
+        for attr_name in dir(app):
+            attr = getattr(app, attr_name)
+            if hasattr(attr, 'add_middleware') and not attr_name.startswith('_'):
+                attr.add_middleware(
+                    CORSMiddleware,
+                    allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
+                    allow_credentials=True,
+                    allow_methods=["*"],
+                    allow_headers=["*"],
+                )
+                print(f"✅ CORS enabled on {attr_name}")
+                break
+    except Exception as e:
+        print(f"⚠️  CORS setup skipped: {e}")
+
     app.run()

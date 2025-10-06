@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Brain, Settings, LogOut } from 'lucide-react';
+import { BookOpen, Brain, GraduationCap, LogOut } from 'lucide-react';
 import { CourseProcessor } from './CourseProcessor';
 import { KnowledgeBaseView } from './KnowledgeBaseView';
+import { TutorView } from './TutorView';
 
-type TabType = 'courses' | 'knowledge-base' | 'settings';
+type TabType = 'courses' | 'knowledge-base' | 'tutor';
 
 export const Dashboard = () => {
   const [activeTab, setActiveTab] = useState<TabType>('courses');
@@ -33,7 +34,7 @@ export const Dashboard = () => {
   const tabs = [
     { id: 'courses' as TabType, label: 'Course Processing', icon: BookOpen },
     { id: 'knowledge-base' as TabType, label: 'Knowledge Base', icon: Brain },
-    { id: 'settings' as TabType, label: 'Settings', icon: Settings },
+    { id: 'tutor' as TabType, label: 'AI Tutor', icon: GraduationCap },
   ];
 
   return (
@@ -94,12 +95,7 @@ export const Dashboard = () => {
         >
           {activeTab === 'courses' && <CourseProcessor />}
           {activeTab === 'knowledge-base' && <KnowledgeBaseView />}
-          {activeTab === 'settings' && (
-            <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20">
-              <h2 className="text-2xl font-bold text-white mb-4">Settings</h2>
-              <p className="text-gray-300">Settings panel coming soon...</p>
-            </div>
-          )}
+          {activeTab === 'tutor' && <TutorView />}
         </motion.div>
       </div>
     </div>

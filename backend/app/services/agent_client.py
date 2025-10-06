@@ -71,6 +71,32 @@ class AgentClient:
                 "message": f"Failed to get status: {str(e)}"
             }
 
+    async def continue_after_login(self, session_id: str) -> Dict[str, Any]:
+        """
+        Continue processing after user login.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Continuation confirmation
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.agent_url}/invocations",
+                    json={
+                        "action": "continue_after_login",
+                        "session_id": session_id
+                    }
+                )
+                return response.json()
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to continue processing: {str(e)}"
+            }
+
     async def stop_processing(self, session_id: str) -> Dict[str, Any]:
         """
         Stop course processing.
@@ -95,6 +121,103 @@ class AgentClient:
             return {
                 "status": "error",
                 "message": f"Failed to stop processing: {str(e)}"
+            }
+
+    async def get_dcv_presigned_url(
+        self,
+        session_id: str,
+        mcp_session_id: str
+    ) -> Dict[str, Any]:
+        """
+        Get presigned URL for DCV live view.
+
+        Args:
+            session_id: Session ID
+            mcp_session_id: MCP browser session ID
+
+        Returns:
+            Presigned URL and session info
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.agent_url}/invocations",
+                    json={
+                        "action": "get_dcv_url",
+                        "session_id": session_id,
+                        "mcp_session_id": mcp_session_id
+                    }
+                )
+                return response.json()
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to get DCV URL: {str(e)}"
+            }
+
+    async def get_saved_courses(
+        self,
+        user_id: str,
+        query: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get all saved courses for a user.
+
+        Args:
+            user_id: User ID
+            query: Optional search query for semantic search
+
+        Returns:
+            List of courses
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.agent_url}/invocations",
+                    json={
+                        "action": "get_saved_courses",
+                        "user_id": user_id,
+                        "query": query
+                    }
+                )
+                return response.json()
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to get saved courses: {str(e)}",
+                "courses": []
+            }
+
+    async def get_course_details(
+        self,
+        user_id: str,
+        course_id: str
+    ) -> Dict[str, Any]:
+        """
+        Get detailed information for a specific course.
+
+        Args:
+            user_id: User ID
+            course_id: Course ID
+
+        Returns:
+            Course details with modules
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.agent_url}/invocations",
+                    json={
+                        "action": "get_course_details",
+                        "user_id": user_id,
+                        "course_id": course_id
+                    }
+                )
+                return response.json()
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to get course details: {str(e)}"
             }
 
 

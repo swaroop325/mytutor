@@ -2,16 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Loader2, CheckCircle, Clock, Video, FileText, Headphones, Download, XCircle } from 'lucide-react';
 import axios from 'axios';
+import { DCVViewer } from './DCVViewer';
 
 interface ProcessingStatus {
   status: string;
   session_id: string;
+  mcp_session_id?: string;
+  console_url?: string;
   current_module: number;
   total_modules: number;
   progress: number;
   summary?: any;
-  dcv_url?: string;
-  dcv_headers?: any;
 }
 
 export const CourseProcessor = () => {
@@ -42,8 +43,7 @@ export const CourseProcessor = () => {
     if (!sessionId) return;
 
     try {
-      const response = await axios.post('http://localhost:8080/invocations', {
-        action: 'get_status',
+      const response = await axios.post('http://localhost:8000/api/v1/agent/status', {
         session_id: sessionId
       });
 
@@ -67,21 +67,33 @@ export const CourseProcessor = () => {
     setError('');
     setIsProcessing(true);
 
+    // Set initial loading state
+    setStatus({
+      status: 'initializing',
+      session_id: '',
+      current_module: 0,
+      total_modules: 0,
+      progress: 0
+    });
+
     try {
       const token = localStorage.getItem('token');
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
 
-      // Generate session ID
-      const newSessionId = `session-${Date.now()}`;
-      setSessionId(newSessionId);
+      // Call backend which proxies to agent (avoids CORS)
+      const response = await axios.post(
+        'http://localhost:8000/api/v1/agent/start-processing',
+        { course_url: courseUrl },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
 
-      // Trigger agent to start processing
-      const response = await axios.post('http://localhost:8080/invocations', {
-        action: 'start_course_processing',
-        session_id: newSessionId,
-        course_url: courseUrl,
-        user_id: user.id || 'unknown'
-      });
+      // Extract session ID from agent response
+      if (response.data.session_id) {
+        setSessionId(response.data.session_id);
+      }
 
       setStatus(response.data);
 
@@ -91,7 +103,7 @@ export const CourseProcessor = () => {
       }
 
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to start processing');
+      setError(err.response?.data?.detail || err.response?.data?.message || 'Failed to start processing');
       setIsProcessing(false);
     }
   };
@@ -102,15 +114,22 @@ export const CourseProcessor = () => {
     setShowDCVViewer(false);
 
     try {
-      // Tell agent to continue processing
-      await axios.post('http://localhost:8080/invocations', {
-        action: 'continue_after_login',
-        session_id: sessionId
-      });
+      const token = localStorage.getItem('token');
+
+      // Tell agent to continue processing via backend
+      await axios.post(
+        'http://localhost:8000/api/v1/agent/continue-processing',
+        { session_id: sessionId },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
 
       // Status will be updated via polling
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to continue processing');
+      setError(err.response?.data?.detail || err.response?.data?.message || 'Failed to continue processing');
     }
   };
 
@@ -118,10 +137,17 @@ export const CourseProcessor = () => {
     if (!sessionId) return;
 
     try {
-      await axios.post('http://localhost:8080/invocations', {
-        action: 'stop_processing',
-        session_id: sessionId
-      });
+      const token = localStorage.getItem('token');
+
+      await axios.post(
+        'http://localhost:8000/api/v1/agent/stop-processing',
+        { session_id: sessionId },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
 
       setIsProcessing(false);
       setStatus(null);
@@ -159,6 +185,8 @@ export const CourseProcessor = () => {
     if (!status) return 'Ready to start';
 
     switch (status.status) {
+      case 'initializing':
+        return 'Initializing browser session...';
       case 'awaiting_login':
         return 'Waiting for login...';
       case 'discovering_modules':
@@ -214,9 +242,20 @@ export const CourseProcessor = () => {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-6 text-red-200"
+          className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-6"
         >
-          {error}
+          <p className="text-red-200 mb-3">{error}</p>
+          {error.includes('Connection limit') && (
+            <button
+              onClick={() => {
+                setError('');
+                handleStart();
+              }}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm"
+            >
+              Retry
+            </button>
+          )}
         </motion.div>
       )}
 
@@ -375,20 +414,74 @@ export const CourseProcessor = () => {
       </AnimatePresence>
 
       {/* DCV Viewer Modal */}
-      {showDCVViewer && status?.dcv_url && (
+      {showDCVViewer && status?.status === 'awaiting_login' && status.mcp_session_id && sessionId && (
+        <DCVViewer
+          sessionId={sessionId}
+          mcpSessionId={status.mcp_session_id}
+          onClose={() => setShowDCVViewer(false)}
+        />
+      )}
+
+      {/* Fallback Login Instructions (if no MCP session) */}
+      {showDCVViewer && status?.status === 'awaiting_login' && !status.mcp_session_id && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden border border-white/10">
-            <div className="p-4 border-b border-white/10">
-              <h3 className="text-lg font-semibold text-white">Browser Session - Please Log In</h3>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl border border-white/10 p-8"
+          >
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Clock className="w-8 h-8 text-blue-400 animate-pulse" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-2">Browser Session Created!</h3>
+              <p className="text-gray-300">A secure browser session has been opened in AWS</p>
             </div>
-            <div className="relative bg-black" style={{ height: 'calc(90vh - 120px)' }}>
-              <iframe
-                src={status.dcv_url}
-                className="w-full h-full"
-                title="Course Browser"
-              />
+
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-6 mb-6">
+              <h4 className="text-yellow-200 font-semibold mb-3 flex items-center gap-2">
+                <span className="text-2xl">⚠️</span>
+                Manual Login Required
+              </h4>
+              <p className="text-yellow-100 text-sm mb-4">
+                The agent has opened the course URL in a secure browser in AWS. You need to log in manually to the course platform.
+              </p>
+
+              {status.console_url && (
+                <a
+                  href={status.console_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors mb-4"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  Open Browser Session in AWS Console
+                </a>
+              )}
+
+              <p className="text-yellow-100 text-xs">
+                After logging in to the course, click "I've Logged In - Continue" below to start processing.
+              </p>
             </div>
-          </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDCVViewer(false)}
+                className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={handleContinueAfterLogin}
+                className="flex-1 px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <CheckCircle className="w-5 h-5" />
+                I've Logged In - Continue
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
 
