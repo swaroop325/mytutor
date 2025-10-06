@@ -313,16 +313,29 @@ export const CourseProcessor = () => {
                 </div>
               )}
 
-              {/* Login Button */}
+              {/* Login Buttons */}
               {status.status === 'awaiting_login' && (
-                <motion.button
-                  onClick={handleContinueAfterLogin}
-                  className="mt-4 w-full px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg transition-colors"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  I've Logged In - Continue Processing
-                </motion.button>
+                <div className="mt-4 flex gap-3">
+                  {!showDCVViewer && (
+                    <motion.button
+                      onClick={() => setShowDCVViewer(true)}
+                      className="flex-1 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <Video className="w-5 h-5" />
+                      Reopen Browser
+                    </motion.button>
+                  )}
+                  <motion.button
+                    onClick={handleContinueAfterLogin}
+                    className="flex-1 px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg transition-colors"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    I've Logged In - Continue Processing
+                  </motion.button>
+                </div>
               )}
             </div>
 
