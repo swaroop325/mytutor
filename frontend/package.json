@@ -10,8 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@cloudscape-design/components": "^3.0.1104",
-    "@cloudscape-design/design-tokens": "^3.0.61",
+    "@cloudscape-design/components": "^3.0.1105",
+    "@cloudscape-design/design-tokens": "^3.0.62",
     "@cloudscape-design/global-styles": "^1.0.46",
     "axios": "^1.12.2",
     "framer-motion": "^12.23.22",

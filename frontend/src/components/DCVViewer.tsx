@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 
-interface DCVViewerProps {
+interface DCVViewerUIProps {
   sessionId: string;
   mcpSessionId: string;
   onClose: () => void;
@@ -14,7 +15,18 @@ declare global {
   }
 }
 
-export const DCVViewer: React.FC<DCVViewerProps> = ({
+interface ConnectionStats {
+  fps: number;
+  traffic: number;
+  peakTraffic: number;
+  latency: number;
+  currentChannels: number;
+  openedChannels: number;
+  channelErrors: number;
+  connected: boolean;
+}
+
+export const DCVViewerUI: React.FC<DCVViewerUIProps> = ({
   sessionId,
   mcpSessionId,
   onClose,
@@ -22,17 +34,51 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
+  const [stats, setStats] = useState<ConnectionStats>({
+    fps: 0,
+    traffic: 0,
+    peakTraffic: 0,
+    latency: 0,
+    currentChannels: 0,
+    openedChannels: 0,
+    channelErrors: 0,
+    connected: false,
+  });
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const dcvContainerRef = useRef<HTMLDivElement>(null);
   const connectionRef = useRef<any>(null);
   const displayLayoutRequestedRef = useRef(false);
+  const statsIntervalRef = useRef<any>(null);
+  const resizeTimeoutRef = useRef<any>(null);
+  const lastWidthRef = useRef(0);
+  const lastHeightRef = useRef(0);
+  const reconnectAttemptsRef = useRef(0);
 
   const handleClose = () => {
+    // Clear all timers
+    if (statsIntervalRef.current) {
+      clearInterval(statsIntervalRef.current);
+      statsIntervalRef.current = null;
+    }
+    if (resizeTimeoutRef.current) {
+      clearTimeout(resizeTimeoutRef.current);
+      resizeTimeoutRef.current = null;
+    }
+
+    // Exit fullscreen if active
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    }
+
     // Properly close the DCV connection before closing the viewer
     if (connectionRef.current) {
       try {
         console.log("Closing DCV connection");
-        connectionRef.current.disconnect();
-        connectionRef.current.close();
+        // Only call disconnect, not both disconnect and close
+        // The DCV SDK will handle the proper closure sequence
+        if (typeof connectionRef.current.disconnect === 'function') {
+          connectionRef.current.disconnect();
+        }
         connectionRef.current = null;
         console.log("DCV connection closed successfully");
       } catch (e) {
@@ -42,32 +88,133 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
     onClose();
   };
 
-  const resizeDisplay = () => {
-    const display = document.getElementById("dcv-display");
-    if (display && connectionRef.current) {
-      // Get the actual dimensions of the display element
-      const displayRect = display.getBoundingClientRect();
-      const width = Math.floor(displayRect.width);
-      const height = Math.floor(displayRect.height);
+  // Update connection statistics using official API
+  const updateStats = () => {
+    if (connectionRef.current) {
+      try {
+        const connection = connectionRef.current;
 
-      console.log(`Requesting resolution change to ${width}x${height}`);
+        // Use official getStats() method
+        if (typeof connection.getStats === 'function') {
+          const dcvStats = connection.getStats();
+          console.log("DCV Stats:", dcvStats);
 
-      if (connectionRef.current.setResolution) {
-        connectionRef.current
-          .setResolution(width, height)
-          .then(() => {
-            console.log(`Resolution successfully set to ${width}x${height}`);
-          })
-          .catch((err: any) => {
-            console.error("Failed to set resolution:", err);
+          setStats({
+            fps: dcvStats.fps || 0,
+            traffic: dcvStats.traffic || 0,
+            peakTraffic: dcvStats.peakTraffic || 0,
+            latency: dcvStats.latency || 0,
+            currentChannels: dcvStats.currentChannels || 0,
+            openedChannels: dcvStats.openedChannels || 0,
+            channelErrors: dcvStats.channelErrors || 0,
+            connected: true,
           });
-      } else {
-        console.error("connection.setResolution is not available");
+        }
+      } catch (e) {
+        console.error("Error fetching stats:", e);
       }
     }
   };
 
+  // Debounced resize display with change threshold
+  const resizeDisplay = () => {
+    // Clear existing timeout
+    if (resizeTimeoutRef.current) {
+      clearTimeout(resizeTimeoutRef.current);
+    }
+    // Debounce resize events by 300ms
+    resizeTimeoutRef.current = setTimeout(() => {
+      const display = document.getElementById("dcv-display");
+      if (display && connectionRef.current) {
+        const displayRect = display.getBoundingClientRect();
+        const width = Math.floor(displayRect.width);
+        const height = Math.floor(displayRect.height);
+
+        console.log(`Resize triggered - Container: ${width}x${height}, Last: ${lastWidthRef.current}x${lastHeightRef.current}`);
+
+        // Check canvas
+        const canvas = display.querySelector('canvas');
+        if (canvas) {
+          console.log(`Current canvas: ${canvas.width}x${canvas.height}, Client: ${canvas.clientWidth}x${canvas.clientHeight}`);
+        }
+
+        // Only resize if dimensions changed significantly (>10px threshold)
+        const widthChanged = Math.abs(width - lastWidthRef.current) > 10;
+        const heightChanged = Math.abs(height - lastHeightRef.current) > 10;
+
+        if ((widthChanged || heightChanged) && width > 0 && height > 0) {
+          console.log(`Requesting resolution change to ${width}x${height}`);
+
+          if (connectionRef.current.requestResolution) {
+            connectionRef.current
+              .requestResolution(width, height)
+              .then(() => {
+                console.log(
+                  `Resolution successfully set to ${width}x${height}`
+                );
+                lastWidthRef.current = width;
+                lastHeightRef.current = height;
+
+                // Log canvas after resize
+                const canvas = display.querySelector('canvas');
+                if (canvas) {
+                  console.log(`Canvas after resize: ${canvas.width}x${canvas.height}`);
+                }
+              })
+              .catch((err: any) => {
+                console.error("Failed to set resolution:", err);
+              });
+          }
+        }
+      }
+    }, 300);
+  };
+
+
+  // Toggle fullscreen
+  const toggleFullscreen = () => {
+    const container = dcvContainerRef.current?.parentElement;
+    if (!container) return;
+
+    if (!document.fullscreenElement) {
+      container.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+        // Resize after entering fullscreen
+        setTimeout(() => resizeDisplay(), 100);
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+        // Resize after exiting fullscreen
+        setTimeout(() => resizeDisplay(), 100);
+      });
+    }
+  };
+
+
   useEffect(() => {
+    // Add DCV canvas styling
+    const style = document.createElement("style");
+    style.textContent = `
+      #dcv-display {
+        width: 100% !important;
+        height: 100% !important;
+        overflow: hidden;
+      }
+      #dcv-display canvas {
+        width: 100% !important;
+        height: 100% !important;
+        display: block;
+        margin: 0;
+        padding: 0;
+      }
+      #dcv-display > div {
+        width: 100% !important;
+        height: 100% !important;
+      }
+    `;
+    document.head.appendChild(style);
+
     // Load DCV SDK using script tag (UMD version for better compatibility)
     const script = document.createElement("script");
     script.src = "/dcv-sdk/dcvjs-umd/dcv.js";
@@ -92,27 +239,61 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
     // Add window resize listener
     window.addEventListener("resize", resizeDisplay);
 
+    // Prevent browser shortcuts during DCV session
+    const preventBrowserShortcuts = (e: KeyboardEvent) => {
+      if (authenticated && (e.ctrlKey || e.metaKey)) {
+        // Prevent common browser shortcuts
+        const preventKeys = ["w", "t", "n", "r", "f", "p", "s", "o", "j"];
+        if (preventKeys.includes(e.key.toLowerCase())) {
+          e.preventDefault();
+          console.log(`Prevented browser shortcut: ${e.key}`);
+        }
+      }
+
+      // Prevent F11 fullscreen (we have our own)
+      if (e.key === "F11") {
+        e.preventDefault();
+        toggleFullscreen();
+      }
+    };
+
+    window.addEventListener("keydown", preventBrowserShortcuts);
+
+    // Handle fullscreen change events
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+
     return () => {
       // Cleanup on unmount - properly close connection
       if (connectionRef.current) {
         try {
           console.log("Closing DCV connection on unmount");
-          connectionRef.current.disconnect();
-          connectionRef.current.close();
+          // Only call disconnect - SDK handles the rest
+          if (typeof connectionRef.current.disconnect === 'function') {
+            connectionRef.current.disconnect();
+          }
           connectionRef.current = null;
           console.log("DCV connection closed successfully");
         } catch (e) {
           console.error("Error closing DCV connection:", e);
         }
       }
-      // Remove script on cleanup
+      // Remove script and style on cleanup
       if (script.parentNode) {
         script.parentNode.removeChild(script);
       }
-      // Remove resize listener
+      if (style.parentNode) {
+        style.parentNode.removeChild(style);
+      }
+      // Remove listeners
       window.removeEventListener("resize", resizeDisplay);
+      window.removeEventListener("keydown", preventBrowserShortcuts);
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
     };
-  }, []);
+  }, [authenticated]);
 
   const initializeDCV = async () => {
     try {
@@ -129,7 +310,7 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
         }
       );
 
-      const { presignedUrl, sessionId: dcvSessionId } = response.data;
+      const { presignedUrl } = response.data;
 
       if (!presignedUrl) {
         throw new Error("No presigned URL received");
@@ -141,11 +322,7 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
       const presignedUrlRef = { current: presignedUrl };
 
       // Callback to extract and preserve query parameters from presigned URL
-      const httpExtraSearchParamsCb = (
-        method: string,
-        url: string,
-        body: any
-      ) => {
+      const httpExtraSearchParamsCb = () => {
         try {
           const urlObj = new URL(presignedUrlRef.current);
           console.log("Extracting auth params from presigned URL");
@@ -169,15 +346,17 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
             );
             return null;
           },
-          error: (auth: any, error: any) => {
+          error: (_auth: any, error: any) => {
             console.error("DCV Authentication error:", error);
             const errorMsg =
-              error?.message || error?.toString() || "Unknown error";
+              error?.message || error?.toString() || "Authentication failed";
+            console.log(errorMsg);
           },
-          success: (auth: any, result: any[]) => {
+          success: (_auth: any, result: any[]) => {
             console.log("DCV Authentication successful", result);
             const { sessionId: dcvSid, authToken } = result[0];
             setAuthenticated(true);
+            setLoading(false);
             connect(
               presignedUrlRef.current,
               dcvSid,
@@ -188,42 +367,61 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
           httpExtraSearchParams: httpExtraSearchParamsCb,
         });
       } else {
+        setLoading(false);
         throw new Error("DCV SDK not loaded");
       }
     } catch (err: any) {
       console.error("DCV initialization error:", err);
-      setError(err.message || "Failed to initialize DCV viewer");
       setLoading(false);
+      setError(err.message || "Failed to initialize DCV viewer");
     }
   };
 
-  const displayLayoutCallback = (
-    serverWidth: number,
-    serverHeight: number,
-    _heads: any[]
-  ) => {
-    console.log(`Display layout callback: ${serverWidth}x${serverHeight}`);
+  const displayLayoutCallback = () => {
+    // Only set resolution once on initial connection (prevents loops)
+    if (!displayLayoutRequestedRef.current) {
+      displayLayoutRequestedRef.current = true;
 
-    const display = document.getElementById("dcv-display");
-    if (display && connectionRef.current) {
-      // Get the actual dimensions of the display element
-      const displayRect = display.getBoundingClientRect();
-      const width = Math.floor(displayRect.width);
-      const height = Math.floor(displayRect.height);
+      const display = document.getElementById("dcv-display");
+      if (display && connectionRef.current) {
+        // Get the actual dimensions of the display element
+        const displayRect = display.getBoundingClientRect();
+        const width = Math.floor(displayRect.width);
+        const height = Math.floor(displayRect.height);
 
-      console.log(`Container dimensions: ${width}x${height}`);
+        console.log(`Initial container dimensions: ${width}x${height}`);
+        console.log(`Display rect:`, displayRect);
 
-      // Set resolution immediately in callback
-      if (connectionRef.current.setResolution && width > 0 && height > 0) {
-        console.log(`Setting resolution to ${width}x${height}`);
-        connectionRef.current
-          .setResolution(width, height)
-          .then(() => {
-            console.log(`Resolution successfully set to ${width}x${height}`);
-          })
-          .catch((err: any) => {
-            console.error("Failed to set resolution:", err);
-          });
+        // Check canvas element
+        const canvas = display.querySelector('canvas');
+        if (canvas) {
+          console.log(`Canvas dimensions: ${canvas.width}x${canvas.height}`);
+          console.log(`Canvas style: ${canvas.style.width}x${canvas.style.height}`);
+          console.log(`Canvas client: ${canvas.clientWidth}x${canvas.clientHeight}`);
+        }
+
+        // Set resolution immediately on first layout
+        if (connectionRef.current.requestResolution && width > 0 && height > 0) {
+          console.log(`Setting initial resolution to ${width}x${height}`);
+          connectionRef.current
+            .requestResolution(width, height)
+            .then(() => {
+              console.log(
+                `Initial resolution successfully set to ${width}x${height}`
+              );
+              lastWidthRef.current = width;
+              lastHeightRef.current = height;
+
+              // Log canvas after resolution change
+              const canvas = display.querySelector('canvas');
+              if (canvas) {
+                console.log(`Canvas after resize: ${canvas.width}x${canvas.height}`);
+              }
+            })
+            .catch((err: any) => {
+              console.error("Failed to set initial resolution:", err);
+            });
+        }
       }
     }
   };
@@ -232,11 +430,7 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
     serverUrl: string,
     sessionId: string,
     authToken: string,
-    httpExtraSearchParamsCb: (
-      method: string,
-      url: string,
-      body: any
-    ) => URLSearchParams
+    httpExtraSearchParamsCb: () => URLSearchParams
   ) => {
     if (!window.dcv) {
       setError("DCV SDK not available");
@@ -255,27 +449,61 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
         baseUrl: `${window.location.origin}/dcv-sdk/dcvjs-umd`,
         callbacks: {
           httpExtraSearchParams: httpExtraSearchParamsCb,
-          displayLayout: displayLayoutCallback,
+          firstFrame: displayLayoutCallback,
+          disconnect: (reason: any) => {
+            console.log('DCV Disconnected:', reason);
+            setStats(prev => ({ ...prev, connected: false }));
+
+            // Clear stats interval on disconnect
+            if (statsIntervalRef.current) {
+              clearInterval(statsIntervalRef.current);
+              statsIntervalRef.current = null;
+            }
+
+            // Only show error if not user-initiated
+            if (reason.code !== 'USER_INITIATED') {
+              const errorMsg = reason.message || 'Connection lost';
+              setError(errorMsg);
+              setLoading(false);
+            }
+          },
+          featuresUpdate: (features: any) => {
+            console.log('DCV Features updated:', features);
+          },
         },
+        enabledChannels: ['display', 'input'], // Only enable needed channels for better performance
+        dynamicAudioTuning: true,
+        enableWebCodecs: true,
+        clientHiDpiScaling: false, // Disable HiDPI scaling to prevent canvas size issues
       })
       .then((conn: any) => {
-        console.log("DCV Connection established successfully");
+        console.log("=== DCV Connection established successfully ===");
+        console.log("Connection object:", conn);
         connectionRef.current = conn;
         setLoading(false);
+        setStats(prev => ({ ...prev, connected: true }));
         setTimeout(() => resizeDisplay(), 500);
+
+        // Start stats monitoring
+        statsIntervalRef.current = setInterval(() => {
+          updateStats();
+        }, 5000); // Check every 5 seconds
+
+        // Initial stats update
+        setTimeout(() => updateStats(), 1000);
       })
       .catch((error: any) => {
         console.error("DCV Connection failed:", error);
-        // setError(`Connection failed: ${error?.message || 'Unknown error'}`);
-        // setLoading(false);
+        const errorMsg = error?.message || error?.toString() || "Failed to connect to DCV session";
+        setError(errorMsg);
+        setLoading(false);
       });
   };
 
   return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-8 pt-16">
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex flex-col p-4">
       <div
-        className="w-full max-w-7xl bg-gray-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-white/10"
-        style={{ height: "calc(100vh - 8rem)" }}
+        className="w-full flex-1 bg-gray-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-white/10"
       >
         {/* Header */}
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 flex items-center justify-between flex-shrink-0">
@@ -285,12 +513,30 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
               Live Browser Session
             </h2>
           </div>
-          <button
-            onClick={handleClose}
-            className="text-white hover:bg-white/10 rounded-lg px-4 py-2 transition-colors"
-          >
-            ✕ Close
-          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Fullscreen Toggle */}
+            {authenticated && (
+              <button
+                onClick={toggleFullscreen}
+                className="text-white hover:bg-white/10 rounded-lg px-3 py-2 transition-colors text-sm"
+                title={
+                  isFullscreen
+                    ? "Exit fullscreen (F11)"
+                    : "Enter fullscreen (F11)"
+                }
+              >
+                {isFullscreen ? "⛶ Exit Fullscreen" : "⛶ Fullscreen"}
+              </button>
+            )}
+
+            <button
+              onClick={handleClose}
+              className="text-white hover:bg-white/10 rounded-lg px-4 py-2 transition-colors"
+            >
+              ✕ Close
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -344,23 +590,96 @@ export const DCVViewer: React.FC<DCVViewerProps> = ({
           <div
             id="dcv-display"
             ref={dcvContainerRef}
-            className="w-full h-full"
             style={{
               display: loading || error ? "none" : "block",
+              width: "100%",
+              height: "100%",
               overflow: "hidden",
-              position: "relative",
-              margin: 0,
-              padding: 0,
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
             }}
           />
         </div>
 
         {/* Status Bar */}
-        {authenticated && !error && (
-          <div className="bg-gray-800 border-t border-gray-700 p-2 text-center flex-shrink-0">
-            <p className="text-green-400 text-sm">
-              🟢 Connected • Session: {mcpSessionId}
-            </p>
+        {authenticated && (
+          <div className="bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between text-xs">
+            <div className="flex gap-6">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">FPS:</span>
+                <span
+                  className={`font-mono font-semibold ${
+                    stats.fps > 25
+                      ? "text-green-400"
+                      : stats.fps > 15
+                      ? "text-yellow-400"
+                      : "text-red-400"
+                  }`}
+                >
+                  {stats.fps.toFixed(0)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Latency:</span>
+                <span
+                  className={`font-mono font-semibold ${
+                    stats.latency < 50
+                      ? "text-green-400"
+                      : stats.latency < 100
+                      ? "text-yellow-400"
+                      : "text-red-400"
+                  }`}
+                >
+                  {stats.latency.toFixed(0)}ms
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Traffic:</span>
+                <span className="text-blue-400 font-mono font-semibold">
+                  {stats.traffic > 0
+                    ? stats.traffic > 1000000
+                      ? `${(stats.traffic / 1000000).toFixed(1)} Mbps`
+                      : `${(stats.traffic / 1000).toFixed(0)} Kbps`
+                    : stats.peakTraffic > 0
+                    ? `Peak: ${stats.peakTraffic > 1000000
+                        ? `${(stats.peakTraffic / 1000000).toFixed(1)} Mbps`
+                        : `${(stats.peakTraffic / 1000).toFixed(0)} Kbps`}`
+                    : '0 bps'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Channels:</span>
+                <span className="text-purple-400 font-mono font-semibold">
+                  {stats.openedChannels}/{stats.currentChannels}
+                </span>
+              </div>
+
+              {stats.channelErrors > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400">Errors:</span>
+                  <span className="text-red-400 font-mono font-semibold">
+                    {stats.channelErrors}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  stats.connected ? "bg-green-400" : "bg-red-400"
+                }`}
+              ></div>
+              <span className="text-gray-400">
+                {stats.connected ? "Connected" : "Disconnected"}
+              </span>
+            </div>
           </div>
         )}
       </div>

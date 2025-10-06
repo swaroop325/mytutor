@@ -1,8 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Loader2, CheckCircle, Clock, Video, FileText, Headphones, Download, XCircle } from 'lucide-react';
-import axios from 'axios';
-import { DCVViewer } from './DCVViewer';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Play,
+  Loader2,
+  CheckCircle,
+  Clock,
+  Video,
+  FileText,
+  Headphones,
+  Download,
+  XCircle,
+} from "lucide-react";
+import axios from "axios";
+import { DCVViewerUI } from "./DCVViewer";
 
 interface ProcessingStatus {
   status: string;
@@ -16,10 +27,10 @@ interface ProcessingStatus {
 }
 
 export const CourseProcessor = () => {
-  const [courseUrl, setCourseUrl] = useState('');
+  const [courseUrl, setCourseUrl] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState<ProcessingStatus | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDCVViewer, setShowDCVViewer] = useState(false);
   const statusInterval = useRef<any>(null);
@@ -43,50 +54,56 @@ export const CourseProcessor = () => {
     if (!sessionId) return;
 
     try {
-      const response = await axios.post('http://localhost:8000/api/v1/agent/status', {
-        session_id: sessionId
-      });
+      const response = await axios.post(
+        "http://localhost:8000/api/v1/agent/status",
+        {
+          session_id: sessionId,
+        }
+      );
 
       setStatus(response.data);
 
       // Stop polling if completed or error
-      if (response.data.status === 'completed' || response.data.status === 'error') {
+      if (
+        response.data.status === "completed" ||
+        response.data.status === "error"
+      ) {
         setIsProcessing(false);
         if (statusInterval.current) {
           clearInterval(statusInterval.current);
         }
       }
     } catch (err) {
-      console.error('Failed to fetch status:', err);
+      console.error("Failed to fetch status:", err);
     }
   };
 
   const handleStart = async () => {
     if (!courseUrl) return;
 
-    setError('');
+    setError("");
     setIsProcessing(true);
 
     // Set initial loading state
     setStatus({
-      status: 'initializing',
-      session_id: '',
+      status: "initializing",
+      session_id: "",
       current_module: 0,
       total_modules: 0,
-      progress: 0
+      progress: 0,
     });
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem("token");
 
       // Call backend which proxies to agent (avoids CORS)
       const response = await axios.post(
-        'http://localhost:8000/api/v1/agent/start-processing',
+        "http://localhost:8000/api/v1/agent/start-processing",
         { course_url: courseUrl },
         {
           headers: {
-            'Authorization': `Bearer ${token}`
-          }
+            Authorization: `Bearer ${token}`,
+          },
         }
       );
 
@@ -98,12 +115,15 @@ export const CourseProcessor = () => {
       setStatus(response.data);
 
       // Show DCV viewer for login
-      if (response.data.status === 'awaiting_login') {
+      if (response.data.status === "awaiting_login") {
         setShowDCVViewer(true);
       }
-
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.response?.data?.message || 'Failed to start processing');
+      setError(
+        err.response?.data?.detail ||
+          err.response?.data?.message ||
+          "Failed to start processing"
+      );
       setIsProcessing(false);
     }
   };
@@ -114,22 +134,26 @@ export const CourseProcessor = () => {
     setShowDCVViewer(false);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem("token");
 
       // Tell agent to continue processing via backend
       await axios.post(
-        'http://localhost:8000/api/v1/agent/continue-processing',
+        "http://localhost:8000/api/v1/agent/continue-processing",
         { session_id: sessionId },
         {
           headers: {
-            'Authorization': `Bearer ${token}`
-          }
+            Authorization: `Bearer ${token}`,
+          },
         }
       );
 
       // Status will be updated via polling
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.response?.data?.message || 'Failed to continue processing');
+      setError(
+        err.response?.data?.detail ||
+          err.response?.data?.message ||
+          "Failed to continue processing"
+      );
     }
   };
 
@@ -137,15 +161,15 @@ export const CourseProcessor = () => {
     if (!sessionId) return;
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem("token");
 
       await axios.post(
-        'http://localhost:8000/api/v1/agent/stop-processing',
+        "http://localhost:8000/api/v1/agent/stop-processing",
         { session_id: sessionId },
         {
           headers: {
-            'Authorization': `Bearer ${token}`
-          }
+            Authorization: `Bearer ${token}`,
+          },
         }
       );
 
@@ -157,7 +181,7 @@ export const CourseProcessor = () => {
         clearInterval(statusInterval.current);
       }
     } catch (err) {
-      console.error('Failed to stop:', err);
+      console.error("Failed to stop:", err);
     }
   };
 
@@ -165,16 +189,16 @@ export const CourseProcessor = () => {
     if (!status) return <Clock className="w-5 h-5 text-gray-400" />;
 
     switch (status.status) {
-      case 'awaiting_login':
+      case "awaiting_login":
         return <Clock className="w-5 h-5 text-yellow-400 animate-pulse" />;
-      case 'discovering_modules':
-      case 'processing_modules':
+      case "discovering_modules":
+      case "processing_modules":
         return <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />;
-      case 'analyzing':
+      case "analyzing":
         return <Loader2 className="w-5 h-5 text-purple-400 animate-spin" />;
-      case 'completed':
+      case "completed":
         return <CheckCircle className="w-5 h-5 text-green-400" />;
-      case 'error':
+      case "error":
         return <XCircle className="w-5 h-5 text-red-400" />;
       default:
         return <Clock className="w-5 h-5 text-gray-400" />;
@@ -182,23 +206,23 @@ export const CourseProcessor = () => {
   };
 
   const getStatusMessage = () => {
-    if (!status) return 'Ready to start';
+    if (!status) return "Ready to start";
 
     switch (status.status) {
-      case 'initializing':
-        return 'Initializing browser session...';
-      case 'awaiting_login':
-        return 'Waiting for login...';
-      case 'discovering_modules':
-        return 'Discovering course modules...';
-      case 'processing_modules':
+      case "initializing":
+        return "Initializing browser session...";
+      case "awaiting_login":
+        return "Waiting for login...";
+      case "discovering_modules":
+        return "Discovering course modules...";
+      case "processing_modules":
         return `Processing module ${status.current_module} of ${status.total_modules}`;
-      case 'analyzing':
-        return 'Analyzing complete course...';
-      case 'completed':
-        return 'Course processing completed!';
-      case 'error':
-        return 'Processing failed';
+      case "analyzing":
+        return "Analyzing complete course...";
+      case "completed":
+        return "Course processing completed!";
+      case "error":
+        return "Processing failed";
       default:
         return status.status;
     }
@@ -211,7 +235,10 @@ export const CourseProcessor = () => {
       {/* Course URL Input */}
       {!isProcessing && (
         <div className="mb-6">
-          <label htmlFor="courseUrl" className="block text-white mb-2 font-medium">
+          <label
+            htmlFor="courseUrl"
+            className="block text-white mb-2 font-medium"
+          >
             Course URL
           </label>
           <div className="flex gap-3">
@@ -245,10 +272,10 @@ export const CourseProcessor = () => {
           className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-6"
         >
           <p className="text-red-200 mb-3">{error}</p>
-          {error.includes('Connection limit') && (
+          {error.includes("Connection limit") && (
             <button
               onClick={() => {
-                setError('');
+                setError("");
                 handleStart();
               }}
               className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm"
@@ -278,7 +305,7 @@ export const CourseProcessor = () => {
                   </h3>
                 </div>
 
-                {isProcessing && status.status !== 'awaiting_login' && (
+                {isProcessing && status.status !== "awaiting_login" && (
                   <button
                     onClick={handleStop}
                     className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors"
@@ -314,7 +341,7 @@ export const CourseProcessor = () => {
               )}
 
               {/* Login Buttons */}
-              {status.status === 'awaiting_login' && (
+              {status.status === "awaiting_login" && (
                 <div className="mt-4 flex gap-3">
                   {!showDCVViewer && (
                     <motion.button
@@ -340,7 +367,7 @@ export const CourseProcessor = () => {
             </div>
 
             {/* Course Summary */}
-            {status.status === 'completed' && status.summary && (
+            {status.status === "completed" && status.summary && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -411,7 +438,7 @@ export const CourseProcessor = () => {
                   onClick={() => {
                     setSessionId(null);
                     setStatus(null);
-                    setCourseUrl('');
+                    setCourseUrl("");
                     setIsProcessing(false);
                   }}
                   className="mt-4 w-full px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-lg transition-colors"
@@ -427,87 +454,112 @@ export const CourseProcessor = () => {
       </AnimatePresence>
 
       {/* DCV Viewer Modal */}
-      {showDCVViewer && status?.status === 'awaiting_login' && status.mcp_session_id && sessionId && (
-        <DCVViewer
-          sessionId={sessionId}
-          mcpSessionId={status.mcp_session_id}
-          onClose={() => setShowDCVViewer(false)}
-        />
-      )}
+      {showDCVViewer &&
+        status?.status === "awaiting_login" &&
+        status.mcp_session_id &&
+        sessionId && (
+          <DCVViewerUI
+            sessionId={sessionId}
+            mcpSessionId={status.mcp_session_id}
+            onClose={() => setShowDCVViewer(false)}
+          />
+        )}
 
       {/* Fallback Login Instructions (if no MCP session) */}
-      {showDCVViewer && status?.status === 'awaiting_login' && !status.mcp_session_id && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl border border-white/10 p-8"
-          >
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Clock className="w-8 h-8 text-blue-400 animate-pulse" />
+      {showDCVViewer &&
+        status?.status === "awaiting_login" &&
+        !status.mcp_session_id && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl border border-white/10 p-8"
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Clock className="w-8 h-8 text-blue-400 animate-pulse" />
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-2">
+                  Browser Session Created!
+                </h3>
+                <p className="text-gray-300">
+                  A secure browser session has been opened in AWS
+                </p>
               </div>
-              <h3 className="text-2xl font-bold text-white mb-2">Browser Session Created!</h3>
-              <p className="text-gray-300">A secure browser session has been opened in AWS</p>
-            </div>
 
-            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-6 mb-6">
-              <h4 className="text-yellow-200 font-semibold mb-3 flex items-center gap-2">
-                <span className="text-2xl">⚠️</span>
-                Manual Login Required
-              </h4>
-              <p className="text-yellow-100 text-sm mb-4">
-                The agent has opened the course URL in a secure browser in AWS. You need to log in manually to the course platform.
-              </p>
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-6 mb-6">
+                <h4 className="text-yellow-200 font-semibold mb-3 flex items-center gap-2">
+                  <span className="text-2xl">⚠️</span>
+                  Manual Login Required
+                </h4>
+                <p className="text-yellow-100 text-sm mb-4">
+                  The agent has opened the course URL in a secure browser in
+                  AWS. You need to log in manually to the course platform.
+                </p>
 
-              {status.console_url && (
-                <a
-                  href={status.console_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors mb-4"
+                {status.console_url && (
+                  <a
+                    href={status.console_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors mb-4"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                      />
+                    </svg>
+                    Open Browser Session in AWS Console
+                  </a>
+                )}
+
+                <p className="text-yellow-100 text-xs">
+                  After logging in to the course, click "I've Logged In -
+                  Continue" below to start processing.
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDCVViewer(false)}
+                  className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                  Open Browser Session in AWS Console
-                </a>
-              )}
-
-              <p className="text-yellow-100 text-xs">
-                After logging in to the course, click "I've Logged In - Continue" below to start processing.
-              </p>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDCVViewer(false)}
-                className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
-              >
-                Close
-              </button>
-              <button
-                onClick={handleContinueAfterLogin}
-                className="flex-1 px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                <CheckCircle className="w-5 h-5" />
-                I've Logged In - Continue
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+                  Close
+                </button>
+                <button
+                  onClick={handleContinueAfterLogin}
+                  className="flex-1 px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  I've Logged In - Continue
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
 
       {/* Instructions */}
       {!isProcessing && (
         <div className="mt-6 bg-blue-500/10 border border-blue-500/30 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-blue-200 mb-3">How it works:</h3>
+          <h3 className="text-lg font-semibold text-blue-200 mb-3">
+            How it works:
+          </h3>
           <ol className="space-y-2 text-blue-100">
             <li>1. Enter course URL and click "Start Processing"</li>
             <li>2. Agent opens browser session via MCP</li>
             <li>3. You log in to the course platform</li>
             <li>4. Agent discovers all modules automatically</li>
-            <li>5. Each module is processed: text, videos, audio, files extracted</li>
+            <li>
+              5. Each module is processed: text, videos, audio, files extracted
+            </li>
             <li>6. AI analyzes complete course and creates summary</li>
             <li>7. View comprehensive course breakdown and resources</li>
           </ol>

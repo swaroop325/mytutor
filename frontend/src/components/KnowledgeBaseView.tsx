@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Brain, BookOpen, Search, X, Loader2 } from 'lucide-react';
