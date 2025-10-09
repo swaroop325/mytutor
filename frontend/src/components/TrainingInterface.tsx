@@ -12,6 +12,7 @@ import {
   BookOpen,
   Lightbulb
 } from 'lucide-react';
+import { API_URL } from '../services/api';
 
 interface TrainingQuestion {
   question: string;
@@ -57,7 +58,7 @@ export const TrainingInterface: React.FC<TrainingInterfaceProps> = ({
 
   const startTrainingSession = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/v1/knowledge-base/training/start', {
+      const response = await fetch(`${API_URL}/knowledge-base/training/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -89,7 +90,7 @@ export const TrainingInterface: React.FC<TrainingInterfaceProps> = ({
     setIsSubmitting(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/v1/knowledge-base/training/answer', {
+      const response = await fetch(`${API_URL}/knowledge-base/training/answer`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -137,7 +138,7 @@ export const TrainingInterface: React.FC<TrainingInterfaceProps> = ({
     if (!session) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/knowledge-base/training/${session.id}/end`, {
+      const response = await fetch(`${API_URL}/knowledge-base/training/${session.id}/end`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`

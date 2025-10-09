@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
+import { API_URL } from "../services/api";
 
 interface DCVViewerUIProps {
   sessionId: string;
@@ -300,7 +301,7 @@ export const DCVViewerUI: React.FC<DCVViewerUIProps> = ({
       // Get presigned URL from backend
       const token = localStorage.getItem("token");
       const response = await axios.post(
-        "http://localhost:8000/api/v1/agent/get-dcv-url",
+        `${API_URL}/agent/get-dcv-url`,
         {
           session_id: sessionId,
           mcp_session_id: mcpSessionId,

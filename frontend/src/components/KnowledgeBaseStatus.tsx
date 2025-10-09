@@ -16,6 +16,7 @@ import {
   BookOpen,
   Target
 } from 'lucide-react';
+import { API_URL } from '../services/api';
 
 interface AgentStatus {
   type: string;
@@ -42,7 +43,7 @@ export const KnowledgeBaseStatus: React.FC<KnowledgeBaseStatusProps> = ({
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/knowledge-base/${knowledgeBaseId}/status`, {
+        const response = await fetch(`${API_URL}/knowledge-base/${knowledgeBaseId}/status`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }

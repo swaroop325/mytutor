@@ -13,14 +13,8 @@ import {
   Lightbulb,
   Play,
   PauseCircle,
-  RotateCcw,
-  Clock,
-  FileText,
-  Edit3,
-  Link,
-  ToggleLeft,
-  ToggleRight
-} from 'lucide-react';
+  FileText} from 'lucide-react';
+import { API_URL } from '../services/api';
 
 interface TrainingQuestion {
   id: number;
@@ -102,7 +96,7 @@ export const EnhancedTrainingInterface: React.FC<EnhancedTrainingInterfaceProps>
 
   const loadLearningContent = async () => {
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/knowledge-base/${knowledgeBaseId}/learning-content`, {
+      const response = await fetch(`${API_URL}/knowledge-base/${knowledgeBaseId}/learning-content`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -129,7 +123,7 @@ export const EnhancedTrainingInterface: React.FC<EnhancedTrainingInterfaceProps>
       setIsStartingAssessment(true);
       setError('');
 
-      const response = await fetch('http://localhost:8000/api/v1/knowledge-base/training/start', {
+      const response = await fetch(`${API_URL}/knowledge-base/training/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -167,7 +161,7 @@ export const EnhancedTrainingInterface: React.FC<EnhancedTrainingInterfaceProps>
     setIsSubmitting(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/v1/knowledge-base/training/answer', {
+      const response = await fetch(`${API_URL}/knowledge-base/training/answer`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -241,7 +235,7 @@ export const EnhancedTrainingInterface: React.FC<EnhancedTrainingInterfaceProps>
     switch (currentQuestion.type) {
       case 'mcq':
         // Handle both array and object formats for options
-        const options = currentQuestion.options;
+        { const options = currentQuestion.options;
         const optionEntries = Array.isArray(options)
           ? options.map((opt, idx) => [String.fromCharCode(65 + idx), opt])
           : Object.entries(options || {});
@@ -275,7 +269,7 @@ export const EnhancedTrainingInterface: React.FC<EnhancedTrainingInterfaceProps>
               );
             })}
           </div>
-        );
+        ); }
 
       case 'true_false':
         return (

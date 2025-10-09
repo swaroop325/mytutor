@@ -5,6 +5,7 @@ import { Brain, BookOpen, Search, X, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import { CourseCard } from './CourseCard';
 import { CourseDetails } from './CourseDetails';
+import { API_URL } from '../services/api';
 
 interface Course {
   id: string;
@@ -50,7 +51,7 @@ export const KnowledgeBaseView = () => {
       setError('');
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        'http://localhost:8000/api/v1/agent/courses',
+        `${API_URL}/agent/courses`,
         {
           headers: { 'Authorization': `Bearer ${token}` }
         }
@@ -75,7 +76,7 @@ export const KnowledgeBaseView = () => {
       setError('');
       const token = localStorage.getItem('token');
       const response = await axios.post(
-        'http://localhost:8000/api/v1/agent/courses/search',
+        `${API_URL}/agent/courses/search`,
         { query },
         {
           headers: { 'Authorization': `Bearer ${token}` }

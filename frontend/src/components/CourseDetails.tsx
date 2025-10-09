@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, BookOpen, Video, Headphones, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_URL } from '../services/api';
 
 interface CourseDetailsProps {
   courseId: string;
@@ -45,7 +46,7 @@ export const CourseDetails: React.FC<CourseDetailsProps> = ({ courseId, onClose 
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
-        'http://localhost:8000/api/v1/agent/courses/details',
+        `${API_URL}/agent/courses/details`,
         { course_id: courseId },
         {
           headers: { 'Authorization': `Bearer ${token}` }

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import { DCVViewerUI } from "./DCVViewer";
+import { API_URL } from "../services/api";
 
 interface ProcessingStatus {
   status: string;
@@ -55,7 +56,7 @@ export const CourseProcessor = () => {
 
     try {
       const response = await axios.post(
-        "http://localhost:8000/api/v1/agent/status",
+        `${API_URL}/agent/status`,
         {
           session_id: sessionId,
         }
@@ -98,7 +99,7 @@ export const CourseProcessor = () => {
 
       // Call backend which proxies to agent (avoids CORS)
       const response = await axios.post(
-        "http://localhost:8000/api/v1/agent/start-processing",
+        `${API_URL}/agent/start-processing`,
         { course_url: courseUrl },
         {
           headers: {
@@ -138,7 +139,7 @@ export const CourseProcessor = () => {
 
       // Tell agent to continue processing via backend
       await axios.post(
-        "http://localhost:8000/api/v1/agent/continue-processing",
+        `${API_URL}/agent/continue-processing`,
         { session_id: sessionId },
         {
           headers: {
@@ -164,7 +165,7 @@ export const CourseProcessor = () => {
       const token = localStorage.getItem("token");
 
       await axios.post(
-        "http://localhost:8000/api/v1/agent/stop-processing",
+        `${API_URL}/agent/stop-processing`,
         { session_id: sessionId },
         {
           headers: {

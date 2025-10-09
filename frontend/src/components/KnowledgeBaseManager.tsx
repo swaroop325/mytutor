@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { CreateKnowledgeBase } from './CreateKnowledgeBase';
 import TrainingHistory from './TrainingHistory';
+import { API_URL } from '../services/api';
 
 interface KnowledgeBase {
   id: string;
@@ -58,7 +59,7 @@ export const KnowledgeBaseManager = () => {
   const fetchKnowledgeBases = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8000/api/v1/knowledge-base/list', {
+      const response = await fetch(`${API_URL}/knowledge-base/list`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -101,7 +102,7 @@ export const KnowledgeBaseManager = () => {
 
     setDeleting(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/knowledge-base/${deleteConfirm.id}`, {
+      const response = await fetch(`${API_URL}/knowledge-base/${deleteConfirm.id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -551,7 +552,7 @@ const GenerateTrainingButton: React.FC<GenerateTrainingButtonProps> = ({ knowled
   useEffect(() => {
     const checkTrainingContent = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/knowledge-base/${knowledgeBaseId}`, {
+        const response = await fetch(`${API_URL}/knowledge-base/${knowledgeBaseId}`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
@@ -579,7 +580,7 @@ const GenerateTrainingButton: React.FC<GenerateTrainingButtonProps> = ({ knowled
     setMessage('');
 
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/knowledge-base/${knowledgeBaseId}/generate-training`, {
+      const response = await fetch(`${API_URL}/knowledge-base/${knowledgeBaseId}/generate-training`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,

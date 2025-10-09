@@ -1,17 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Brain, 
-  Upload, 
-  FileText, 
-  CheckCircle, 
-  Clock, 
-  AlertCircle,
-  Play,
-  BookOpen
-} from 'lucide-react';
+import {
+  Brain,
+  FileText,
+  Clock} from 'lucide-react';
 import { FileUpload } from './FileUpload';
+import { API_URL } from '../services/api';
 
 interface KnowledgeBaseCreatorProps {
   onKnowledgeBaseCreated: (kb: any) => void;
@@ -50,7 +45,7 @@ export const KnowledgeBaseCreator: React.FC<KnowledgeBaseCreatorProps> = ({
         const formData = new FormData();
         formData.append('file', file);
         
-        const uploadResponse = await fetch('http://localhost:8000/api/v1/files/upload', {
+        const uploadResponse = await fetch(`${API_URL}/files/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -71,7 +66,7 @@ export const KnowledgeBaseCreator: React.FC<KnowledgeBaseCreatorProps> = ({
       console.log(`📁 All files uploaded, creating knowledge base with IDs:`, fileIds);
       
       // Create knowledge base with actual file IDs
-      const response = await fetch('http://localhost:8000/api/v1/knowledge-base/create', {
+      const response = await fetch(`${API_URL}/knowledge-base/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

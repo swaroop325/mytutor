@@ -14,7 +14,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import { EnhancedTrainingInterface } from './EnhancedTrainingInterface';
-import { knowledgeBaseService } from '../services/api';
+import { API_URL, knowledgeBaseService } from '../services/api';
 import type { TrainingSession } from '../types';
 
 interface KnowledgeBase {
@@ -59,7 +59,7 @@ export const AITutor = () => {
   const fetchKnowledgeBases = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8000/api/v1/knowledge-base/list', {
+      const response = await fetch(`${API_URL}/knowledge-base/list`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
