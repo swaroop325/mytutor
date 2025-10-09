@@ -1,0 +1,130 @@
+{
+  "agents": {
+    "text": {
+      "primary_model": {
+        "model_id": "us.anthropic.claude-3-haiku-20240307-v1:0",
+        "region": "us-east-1",
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "capabilities": ["text"],
+        "description": "Fast, cost-effective model for text processing"
+      },
+      "fallback_models": [
+        {
+          "model_id": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+          "region": "us-east-1",
+          "max_tokens": 8192,
+          "temperature": 0.1,
+          "capabilities": ["text", "vision", "assessment"],
+          "description": "High-capability fallback model"
+        }
+      ],
+      "enabled": true
+    },
+    "pdf": {
+      "primary_model": {
+        "model_id": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "region": "us-east-1",
+        "max_tokens": 8192,
+        "temperature": 0.1,
+        "capabilities": ["text", "vision"],
+        "description": "High-capability model for complex PDF analysis"
+      },
+      "fallback_models": [
+        {
+          "model_id": "us.anthropic.claude-3-haiku-20240307-v1:0",
+          "region": "us-east-1",
+          "max_tokens": 4096,
+          "temperature": 0.1,
+          "capabilities": ["text"],
+          "description": "Cost-effective fallback for text-only PDF processing"
+        }
+      ],
+      "enabled": true
+    },
+    "image": {
+      "primary_model": {
+        "model_id": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "region": "us-east-1",
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "capabilities": ["text", "vision"],
+        "description": "Vision-capable model for image analysis"
+      },
+      "fallback_models": [
+        {
+          "model_id": "us.anthropic.claude-3-haiku-20240307-v1:0",
+          "region": "us-east-1",
+          "max_tokens": 4096,
+          "temperature": 0.1,
+          "capabilities": ["text"],
+          "description": "Text-only fallback for image metadata processing"
+        }
+      ],
+      "enabled": true
+    },
+    "video": {
+      "primary_model": {
+        "model_id": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "region": "us-east-1",
+        "max_tokens": 8192,
+        "temperature": 0.1,
+        "capabilities": ["text", "vision"],
+        "description": "Vision-capable model for video frame analysis"
+      },
+      "fallback_models": [
+        {
+          "model_id": "us.anthropic.claude-3-haiku-20240307-v1:0",
+          "region": "us-east-1",
+          "max_tokens": 4096,
+          "temperature": 0.1,
+          "capabilities": ["text"],
+          "description": "Text-only fallback for video metadata processing"
+        }
+      ],
+      "enabled": true
+    },
+    "audio": {
+      "primary_model": {
+        "model_id": "us.anthropic.claude-3-haiku-20240307-v1:0",
+        "region": "us-east-1",
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "capabilities": ["text", "audio"],
+        "description": "Cost-effective model for audio transcription analysis"
+      },
+      "fallback_models": [
+        {
+          "model_id": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+          "region": "us-east-1",
+          "max_tokens": 8192,
+          "temperature": 0.1,
+          "capabilities": ["text", "vision", "assessment"],
+          "description": "High-capability fallback for complex audio analysis"
+        }
+      ],
+      "enabled": true
+    },
+    "training": {
+      "primary_model": {
+        "model_id": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "region": "us-east-1",
+        "max_tokens": 8192,
+        "temperature": 0.1,
+        "capabilities": ["text", "vision", "assessment"],
+        "description": "High-capability model for training content generation and assessment"
+      },
+      "fallback_models": [
+        {
+          "model_id": "us.anthropic.claude-3-haiku-20240307-v1:0",
+          "region": "us-east-1",
+          "max_tokens": 4096,
+          "temperature": 0.1,
+          "capabilities": ["text"],
+          "description": "Cost-effective fallback for basic training content"
+        }
+      ],
+      "enabled": true
+    }
+  }
+}

@@ -7,9 +7,9 @@ This file provides instructions for AI coding assistants (like Claude Code, GitH
 ## Project Overview
 
 **Project Name**: MyTutor
-**Type**: Full-stack AI-powered course learning platform
-**Last Updated**: 2025-10-04
-**Version**: 1.0.0
+**Type**: Full-stack AI-powered learning platform with knowledge base management and training
+**Last Updated**: 2025-10-07
+**Version**: 2.0.0
 
 ### Tech Stack
 
@@ -17,17 +17,26 @@ This file provides instructions for AI coding assistants (like Claude Code, GitH
 - React 18 + TypeScript + Vite
 - Tailwind CSS + Framer Motion
 - React Router + Axios
+- Lucide React icons
 
 **Backend**:
 - Python 3.10+ with FastAPI
 - Pydantic for validation
-- JWT authentication
-- Playwright for browser automation
+- JWT authentication with bcrypt
+- File upload and processing
+- Multi-agent system architecture
 - AWS Bedrock integration
 
+**Agent System**:
+- AgentCore Runtime
+- Bedrock AgentCore Starter Toolkit
+- Multi-modal content processing
+- Persistent memory storage
+
 **External Services**:
-- Amazon Bedrock (Claude Sonnet)
-- Amazon DCV (optional)
+- Amazon Bedrock (Claude 3.5 Sonnet)
+- AgentCore Memory
+- AWS S3 (future)
 
 ## Code Style & Conventions
 
@@ -84,79 +93,132 @@ const fetchUser = async (id: string): Promise<User> => {};
 
 ```
 mytutor/
-├── backend/
+├── backend/                    # FastAPI Backend
 │   ├── app/
-│   │   ├── api/              # API route handlers
-│   │   │   ├── auth.py       # Authentication endpoints
-│   │   │   └── course.py     # Course processing endpoints
-│   │   ├── core/             # Core utilities
-│   │   │   ├── config.py     # Configuration
-│   │   │   └── security.py   # Security utilities
-│   │   ├── models/           # Data models
-│   │   │   └── user.py
-│   │   ├── schemas/          # Pydantic schemas
-│   │   │   ├── auth.py
-│   │   │   └── course.py
-│   │   ├── services/         # Business logic
-│   │   │   ├── bedrock_service.py
-│   │   │   ├── browser_service.py
-│   │   │   └── agentcore_service.py
-│   │   └── main.py           # FastAPI app entry
-│   ├── requirements.txt
-│   └── .env.example
+│   │   ├── api/               # API route handlers
+│   │   │   ├── auth.py        # Authentication endpoints
+│   │   │   ├── file_upload.py # File upload and processing
+│   │   │   ├── knowledge_base.py # Knowledge base management
+│   │   │   ├── agent.py       # Agent integration endpoints
+│   │   │   └── course.py      # Legacy course processing
+│   │   ├── core/              # Core utilities
+│   │   │   ├── config.py      # Configuration with CORS handling
+│   │   │   └── security.py    # JWT and bcrypt security
+│   │   ├── models/            # Data models (minimal)
+│   │   ├── schemas/           # Pydantic schemas
+│   │   │   └── file_upload.py # File upload schemas
+│   │   ├── services/          # Business logic
+│   │   │   ├── knowledge_base_service.py # KB management with training
+│   │   │   ├── file_upload_service.py    # File handling and validation
+│   │   │   ├── agent_client.py           # Agent communication
+│   │   │   └── link_validation_service.py # URL validation
+│   │   └── main.py            # FastAPI app entry
+│   ├── data/                  # Persistent storage
+│   │   ├── knowledge_bases.json # KB registry
+│   │   └── training_sessions.json # Training history
+│   ├── uploads/               # File storage by category
+│   │   ├── document/
+│   │   ├── video/
+│   │   ├── audio/
+│   │   └── image/
+│   └── requirements.txt
 │
-├── frontend/
+├── frontend/                   # React Frontend
 │   ├── src/
-│   │   ├── components/       # React components
-│   │   │   ├── LandingPage.tsx
-│   │   │   ├── WallERobot.tsx
-│   │   │   ├── Register.tsx
-│   │   │   ├── Dashboard.tsx
-│   │   │   ├── CourseInput.tsx
-│   │   │   └── KnowledgeBaseView.tsx
-│   │   ├── services/         # API services
-│   │   │   └── api.ts
-│   │   ├── types/            # TypeScript types
-│   │   │   └── index.ts
-│   │   └── App.tsx
-│   ├── package.json
-│   └── .env.example
+│   │   ├── components/        # React components
+│   │   │   ├── Dashboard.tsx  # Main dashboard with tabs
+│   │   │   ├── KnowledgeBaseManager.tsx # KB CRUD operations
+│   │   │   ├── CreateKnowledgeBase.tsx  # KB creation wizard
+│   │   │   ├── AITutor.tsx             # Training interface
+│   │   │   ├── TrainingInterface.tsx   # MCQ training UI
+│   │   │   ├── TrainingAnalytics.tsx   # Performance analytics
+│   │   │   ├── TrainingHistory.tsx     # Session history
+│   │   │   ├── FileUpload.tsx          # Drag & drop upload
+│   │   │   ├── DirectLinkInput.tsx     # URL input component
+│   │   │   ├── LandingPage.tsx         # Login/register page
+│   │   │   └── WallERobot.tsx          # Animated mascot
+│   │   ├── services/          # API services
+│   │   │   └── api.ts         # Comprehensive API client
+│   │   ├── types/             # TypeScript types
+│   │   │   └── index.ts       # All type definitions
+│   │   └── App.tsx            # Main app with routing
+│   └── package.json
 │
-├── README.md
-├── ARCHITECTURE.md
-├── SETUP_GUIDE.md
-└── AGENT.md (this file)
+├── agent/                      # AgentCore Runtime
+│   ├── full_course_processor.py # Main agent with memory integration
+│   ├── file_processor.py        # Multi-modal file processing
+│   ├── course_processor.py      # Course URL processing
+│   ├── browser_viewer.py        # Browser automation utilities
+│   └── requirements.txt          # Agent dependencies
+│
+├── logs/                       # Application logs
+│   ├── backend.log            # Backend API logs
+│   ├── frontend.log           # Frontend build logs
+│   └── agent.log              # Agent processing logs
+│
+├── .kiro/                      # Kiro IDE configuration
+│   └── specs/                 # Feature specifications
+│
+├── README.md                   # Updated project documentation
+├── AGENT.md                    # This file
+└── start.sh                    # Application startup script
 ```
 
 ## Key Architecture Decisions
 
 ### 1. Authentication
-- **Method**: JWT tokens
+- **Method**: JWT tokens with bcrypt password hashing
 - **Storage**: localStorage (client-side)
-- **Hashing**: bcrypt for passwords
+- **Security**: python-jose for JWT handling
 - **Expiry**: 24 hours (configurable)
+- **Admin User**: Single admin user for MVP (admin/admin123)
 
-### 2. State Management
-- **Frontend**: React Hooks (useState, useEffect)
-- **Backend**: In-memory (MVP) - should migrate to database
-- **Future**: Redux/Zustand for complex state
+### 2. File Processing
+- **Multi-Agent System**: Specialized agents for different content types
+- **Supported Types**: PDF, DOCX, MP4, MP3, images, etc.
+- **Storage**: File-based with categorized folders
+- **Validation**: Comprehensive file type and size validation
+- **Processing**: Real-time progress tracking
 
-### 3. API Design
-- **Style**: RESTful
+### 3. Knowledge Base Management
+- **Storage**: JSON-based persistence (data/knowledge_bases.json)
+- **Processing**: Multi-agent pipeline with status tracking
+- **Memory**: AgentCore Memory integration for advanced storage
+- **Training**: AI-powered MCQ generation from content
+
+### 4. Training System
+- **MCQ Generation**: AI-powered adaptive questions
+- **Fallback System**: Works without agent for basic functionality
+- **Progress Tracking**: Detailed session history and analytics
+- **Persistence**: Training sessions saved to JSON
+- **Analytics**: Comprehensive performance metrics
+
+### 5. State Management
+- **Frontend**: React Hooks with context for global state
+- **Backend**: File-based persistence with in-memory caching
+- **Real-time Updates**: Polling for processing status
+- **Future**: Database migration planned
+
+### 6. API Design
+- **Style**: RESTful with comprehensive endpoints
 - **Versioning**: `/api/v1/`
-- **Response Format**: JSON
-- **Error Handling**: Standard HTTP status codes
+- **Response Format**: JSON with consistent error handling
+- **File Upload**: Multipart form data with validation
+- **Authentication**: JWT bearer tokens
 
-### 4. Browser Automation
-- **Primary**: Playwright (Python)
-- **MCP Integration**: AgentCore for advanced automation
-- **Remote Sessions**: Amazon DCV (optional)
+### 7. Agent Integration
+- **Runtime**: AgentCore with Bedrock integration
+- **Communication**: HTTP API between backend and agent
+- **Processing**: Asynchronous with status polling
+- **Memory**: Persistent storage for knowledge bases
+- **Fallback**: System works without agent for basic features
 
-### 5. AI Integration
-- **Service**: Amazon Bedrock
-- **Model**: Claude 3.5 Sonnet v2
-- **Input**: Text + Images (multimodal)
-- **Output**: Structured JSON
+### 8. UI/UX Design
+- **Theme**: Dark gradient theme with modern aesthetics
+- **Navigation**: Tab-based interface with clear organization
+- **Animations**: Framer Motion for smooth interactions
+- **Responsive**: Mobile-first design with desktop optimization
+- **Accessibility**: Proper ARIA labels and keyboard navigation
 
 ## Common Tasks for AI Assistants
 
@@ -200,16 +262,33 @@ mytutor/
 
 ```env
 # Required
-SECRET_KEY=                    # JWT secret key
+SECRET_KEY=your-secret-key-change-in-production-use-openssl-rand-hex-32
 
-# Optional
+# API Configuration
 API_V1_STR=/api/v1
 PROJECT_NAME=MyTutor
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
-BACKEND_CORS_ORIGINS=["http://localhost:5173"]
-BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
-MCP_SERVER_URL=http://localhost:3000
-DCV_SERVER_URL=http://localhost:8080
+
+# CORS (comma-separated)
+BACKEND_CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+
+# AWS Configuration
+AWS_REGION=us-east-1
+BEDROCK_MODEL_ID=us.anthropic.claude-3-5-sonnet-20241022-v2:0
+
+# AgentCore Runtime
+AGENTCORE_URL=http://localhost:8080
+```
+
+### Agent (.env)
+
+```env
+# AWS Configuration
+AWS_REGION=us-east-1
+BEDROCK_MODEL_ID=us.anthropic.claude-3-5-sonnet-20241022-v2:0
+
+# Memory Configuration
+MEMORY_NAME=MyTutorCourseKnowledgeBase
 ```
 
 ### Frontend (.env)
@@ -490,40 +569,63 @@ npm run format
 
 | Date | Change | Updated By |
 |------|--------|------------|
-| 2025-10-04 | Initial project setup | Claude Code |
-| 2025-10-04 | Added authentication system | Claude Code |
-| 2025-10-04 | Integrated AWS Bedrock | Claude Code |
-| 2025-10-04 | Added browser automation | Claude Code |
-| 2025-10-04 | Created frontend with WALL-E robot | Claude Code |
-| 2025-10-04 | Fixed Tailwind CSS v4 PostCSS config | Claude Code |
-| 2025-10-04 | Fixed TypeScript type imports (verbatimModuleSyntax) | Claude Code |
-| 2025-10-04 | Redesigned UI to isomorphic login/register page | Claude Code |
-| 2025-10-04 | Added Lucide React icons throughout UI | Claude Code |
-| 2025-10-04 | Removed separate Register component | Claude Code |
-| 2025-10-04 | Fixed Tailwind CSS v3 configuration | Claude Code |
-| 2025-10-04 | Added dev.sh script with auto-reload for both services | Claude Code |
-| 2025-10-04 | Simplified to single admin user (username: admin, password: admin123) | Claude Code |
-| 2025-10-04 | Removed registration UI - MVP with login only | Claude Code |
-| 2025-10-04 | Fixed bcrypt/passlib compatibility - switched to bcrypt directly | Claude Code |
-| 2025-10-04 | Removed Nova Act dependency - using Playwright exclusively | Claude Code |
-| 2025-10-04 | Removed all Nova Act references from codebase | Claude Code |
-| 2025-10-04 | Enhanced browser_service with intelligent scraping features | Claude Code |
-| 2025-10-04 | Bootstrapped AgentCore runtime in /agent directory | Claude Code |
-| 2025-10-04 | Created course_processor.py with MCP browser automation | Claude Code |
-| 2025-10-04 | Integrated Playwright + MCP for secure browser sessions | Claude Code |
-| 2025-10-04 | Complete architecture redesign - Agent-centric processing | Claude Code |
-| 2025-10-04 | Created full_course_processor.py with module navigation | Claude Code |
-| 2025-10-04 | Integrated Amazon DCV streaming for browser viewing | Claude Code |
-| 2025-10-04 | Added text/video/audio/file extraction per module | Claude Code |
-| 2025-10-04 | Backend simplified to auth + agent triggering only | Claude Code |
-| 2025-10-04 | Frontend polls agent for real-time progress updates | Claude Code |
-| 2025-10-04 | Removed all old course processing endpoints from backend | Claude Code |
-| 2025-10-04 | Moved unused services to _unused folder | Claude Code |
-| 2025-10-04 | Updated Dashboard to use CourseProcessor component | Claude Code |
+| 2025-10-04 | Initial project setup with authentication and Bedrock | Claude Code |
+| 2025-10-04 | Added browser automation with Playwright and AgentCore | Claude Code |
+| 2025-10-04 | Created frontend with WALL-E robot and modern UI | Claude Code |
+| 2025-10-04 | Implemented course processing with agent architecture | Claude Code |
+| 2025-10-07 | **Major Feature Update: Knowledge Base System** | Kiro AI |
+| 2025-10-07 | Added comprehensive file upload system with drag & drop | Kiro AI |
+| 2025-10-07 | Implemented multi-agent file processing (PDF, video, audio, image, text) | Kiro AI |
+| 2025-10-07 | Created knowledge base management with CRUD operations | Kiro AI |
+| 2025-10-07 | Added direct link processing and validation | Kiro AI |
+| 2025-10-07 | Implemented AI-powered training system with MCQ generation | Kiro AI |
+| 2025-10-07 | Added training interface with adaptive questions and explanations | Kiro AI |
+| 2025-10-07 | Created comprehensive training analytics and history tracking | Kiro AI |
+| 2025-10-07 | Integrated AgentCore Memory for persistent knowledge storage | Kiro AI |
+| 2025-10-07 | Added fallback system for training when agent is offline | Kiro AI |
+| 2025-10-07 | Implemented file categorization with intelligent type detection | Kiro AI |
+| 2025-10-07 | Added real-time processing status with progress tracking | Kiro AI |
+| 2025-10-07 | Created training session persistence with JSON storage | Kiro AI |
+| 2025-10-07 | Fixed knowledge base deletion to clean up training sessions | Kiro AI |
+| 2025-10-07 | Added comprehensive API endpoints for all features | Kiro AI |
+| 2025-10-07 | Updated dashboard with tab-based navigation (KB, Tutor, Analytics) | Kiro AI |
+| 2025-10-07 | Enhanced UI with responsive design and modern components | Kiro AI |
+| 2025-10-07 | Fixed CORS configuration and model ID format for Bedrock | Kiro AI |
+| 2025-10-07 | Added proper error handling and loading states throughout | Kiro AI |
+| 2025-10-07 | Updated documentation (README.md and AGENT.md) | Kiro AI |
 
 ---
 
-**Last Updated**: 2025-10-04
+**Last Updated**: 2025-10-07
 **Maintained By**: AI Assistants working on MyTutor
 
 **Note**: AI assistants should update this file whenever making significant changes to the codebase.
+
+## Current Feature Status
+
+### ✅ **Completed Features**
+- **Authentication**: JWT-based login system
+- **File Upload**: Multi-format drag & drop with validation
+- **Knowledge Base Management**: Full CRUD with processing status
+- **Multi-Agent Processing**: Specialized agents for different content types
+- **AI Training**: MCQ generation with adaptive difficulty
+- **Training Analytics**: Comprehensive performance tracking
+- **Training History**: Persistent session storage and retrieval
+- **Memory Integration**: AgentCore Memory for advanced storage
+- **Fallback System**: Works without agent for basic functionality
+- **Modern UI**: Responsive design with animations and dark theme
+
+### 🚧 **In Progress**
+- **Agent Optimization**: Improving processing speed and reliability
+- **Advanced Analytics**: More detailed performance insights
+- **Content Extraction**: Enhanced text and media extraction
+
+### 📋 **Planned Features**
+- **Database Migration**: Move from JSON to PostgreSQL/MongoDB
+- **User Management**: Multi-user support with roles
+- **Export Features**: Training data and knowledge base export
+- **Advanced Training**: Spaced repetition and adaptive learning
+- **Content Recommendations**: AI-powered learning path suggestions
+- **Mobile App**: React Native mobile application
+- **API Rate Limiting**: Production-ready API protection
+- **Caching Layer**: Redis for improved performance

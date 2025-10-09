@@ -76,3 +76,7 @@ htmlcov/
 *.sqlite3
 
 logs/*
+.kiro/** 
+backend/uploads/**
+
+test/**

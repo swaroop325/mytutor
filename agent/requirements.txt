@@ -5,3 +5,25 @@ playwright
 fastapi
 uvicorn[standard]
 websockets
+
+# File processing dependencies
+PyPDF2
+PyMuPDF  # Advanced PDF processing with fitz
+pandas   # Table structure analysis
+python-docx
+python-pptx
+Pillow
+SpeechRecognition
+opencv-python
+requests
+boto3
+
+# Additional dependencies for multimodal processing
+httpx
+asyncio
+
+# Local audio/video processing dependencies
+openai-whisper  # For local audio transcription (primary method, no S3 required)
+pytesseract     # For local OCR (requires tesseract binary)
+easyocr         # Alternative OCR library
+ffmpeg-python   # Python wrapper for FFmpeg

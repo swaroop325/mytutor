@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api import auth, course, agent
+from app.api import auth, course, agent, file_upload, knowledge_base
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -12,7 +12,7 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -22,6 +22,8 @@ app.add_middleware(
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 app.include_router(course.router, prefix=f"{settings.API_V1_STR}/course", tags=["course"])
 app.include_router(agent.router, prefix=f"{settings.API_V1_STR}/agent", tags=["agent"])
+app.include_router(file_upload.router, prefix=f"{settings.API_V1_STR}/files", tags=["files"])
+app.include_router(knowledge_base.router, prefix=f"{settings.API_V1_STR}/knowledge-base", tags=["knowledge-base"])
 
 
 @app.get("/")

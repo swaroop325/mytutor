@@ -13,7 +13,14 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
     # CORS
-    BACKEND_CORS_ORIGINS: list = ["http://localhost:5173"]
+    BACKEND_CORS_ORIGINS: str = "http://localhost:5173"
+    
+    @property
+    def cors_origins(self) -> list:
+        """Parse CORS origins from comma-separated string."""
+        if isinstance(self.BACKEND_CORS_ORIGINS, str):
+            return [origin.strip() for origin in self.BACKEND_CORS_ORIGINS.split(",")]
+        return self.BACKEND_CORS_ORIGINS
 
     # AWS Configuration
     AWS_REGION: str = "us-east-1"

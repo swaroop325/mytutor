@@ -19,9 +19,9 @@ VIEWER_PID=$!
 # Wait a bit
 sleep 2
 
-# Start Course Processor Agent
-echo "🤖 Starting Course Processor Agent on port 8080..."
-python course_processor.py &
+# Start Full Course Processor Agent (with file processing)
+echo "🤖 Starting Full Course Processor Agent on port 8080..."
+python full_course_processor.py &
 PROCESSOR_PID=$!
 
 # Function to cleanup on exit
