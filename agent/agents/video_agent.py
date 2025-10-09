@@ -94,10 +94,14 @@ class VideoAgent:
         try:
             print(f"🎬 VIDEO Agent processing: {file_path}")
             logger.info(f"Starting video processing for: {file_path}")
-            
-            # Check if file exists first
-            if not os.path.exists(file_path):
-                error_msg = f"Video file not found: {file_path}"
+
+            # Resolve file path first (handles relative paths from different working directories)
+            resolved_path = self._resolve_file_path(Path(file_path))
+            print(f"🔍 Resolved video path: {resolved_path}")
+
+            # Check if file exists at resolved path
+            if not resolved_path.exists():
+                error_msg = f"Video file not found: {file_path} (resolved: {resolved_path})"
                 print(f"❌ {error_msg}")
                 logger.error(error_msg)
                 return {
@@ -106,12 +110,14 @@ class VideoAgent:
                     "status": "error",
                     "error": error_msg
                 }
-            
-            print(f"✅ Video file exists: {file_path} ({os.path.getsize(file_path)} bytes)")
-            
+
+            # Use resolved path string for the rest of processing
+            resolved_path_str = str(resolved_path)
+            print(f"✅ Video file exists: {resolved_path_str} ({resolved_path.stat().st_size} bytes)")
+
             # Extract video metadata and frames
             print("🔍 Starting video content extraction...")
-            video_data = await self._extract_video_content(file_path)
+            video_data = await self._extract_video_content(resolved_path_str)
             print("✅ Video content extraction completed")
             logger.info("Video content extraction completed")
             

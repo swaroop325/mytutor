@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 import numpy as np
 from dataclasses import dataclass
 import base64
+import speech_recognition as sr
 
 # Import model configuration system
 import sys

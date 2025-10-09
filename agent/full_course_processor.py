@@ -880,7 +880,13 @@ Format as JSON.
 
         # File processing session
         if session_type == "file_processing":
-            return {
+            # Import memory save progress tracking
+            from file_processor import memory_save_progress
+
+            # Get memory save progress if available
+            mem_progress = memory_save_progress.get(session_id, {})
+
+            status_response = {
                 "status": session.get("status"),
                 "session_id": session_id,
                 "type": "file_processing",
@@ -893,6 +899,17 @@ Format as JSON.
                 "error": session.get("error"),
                 "started_at": session.get("started_at")
             }
+
+            # Add memory save progress if available
+            if mem_progress:
+                status_response["memory_save"] = {
+                    "chunks_saved": mem_progress.get("chunks_saved", 0),
+                    "total_chunks": mem_progress.get("total_chunks", 0),
+                    "status": mem_progress.get("status", "pending"),
+                    "progress_pct": int(mem_progress.get("chunks_saved", 0) / mem_progress.get("total_chunks", 1) * 100) if mem_progress.get("total_chunks", 0) > 0 else 0
+                }
+
+            return status_response
 
         # Course processing session (legacy)
         return {
@@ -1302,12 +1319,16 @@ Format as JSON.
 
             print(f"🤖 Processing {len(file_paths)} files with specialized agents for KB {kb_id}")
 
-            # Use the specialized agent system
-            result = await file_processor.process_files_with_agents(file_paths, user_id)
+            # Update to show we've started processing (not stuck at 0%)
+            session["progress"] = 10  # Initial progress to show we're working
+            session["status"] = "processing_files"
 
-            # Update progress
+            # Use the specialized agent system (pass session_id for memory save tracking)
+            result = await file_processor.process_files_with_agents(file_paths, user_id, session_id)
+
+            # Update progress after file processing completes
             session["processed_files"] = len(file_paths)
-            session["progress"] = 100
+            session["progress"] = 90  # File processing done, preparing results
 
             # If we have a knowledge base ID, store content in AgentCore Memory
             if kb_id and result.get("status") == "completed":
@@ -1327,6 +1348,7 @@ Format as JSON.
             session["results"] = result
             session["status"] = "completed" if result.get("status") == "completed" else "error"
             session["error"] = result.get("message") if result.get("status") == "error" else None
+            session["progress"] = 100  # Mark as fully complete
 
             print(f"✅ {agent_type.upper()} Agent completed processing for session {session_id}")
 
@@ -2052,19 +2074,31 @@ Format as clear, structured text suitable for comprehensive course material anal
                 region_name=self.region
             )
 
-            session = session_manager.create_memory_session(
-                actor_id=user_id,
-                session_id=self._clean_session_id(f"{kb_id}_training_content")
-            )
+            # Try to retrieve training content using list_events (not get_conversation_history)
+            session_id = self._clean_session_id(f"{kb_id}_training_content")
 
-            # Get the conversation history (stored training content)
-            messages = session.get_conversation_history()
-            for message in messages:
-                if message.content and "Training Content Generated:" in message.content:
-                    # Extract just the training content part
-                    content_parts = message.content.split("Training Content Generated:")
-                    if len(content_parts) > 1:
-                        return content_parts[1].strip()
+            try:
+                events = session_manager.list_events(
+                    actor_id=user_id,
+                    session_id=session_id
+                )
+
+                for event in events:
+                    if event.get('payload'):
+                        for payload_item in event['payload']:
+                            if payload_item.get('conversational', {}).get('content', {}).get('text'):
+                                content_text = payload_item['conversational']['content']['text']
+                                if "Training Content Generated:" in content_text:
+                                    # Extract just the training content part
+                                    content_parts = content_text.split("Training Content Generated:")
+                                    if len(content_parts) > 1:
+                                        return content_parts[1].strip()
+                                # Also return any content that looks like training material
+                                elif len(content_text) > 200 and any(keyword in content_text.lower() for keyword in ['concept', 'objective', 'summary']):
+                                    return content_text
+
+            except Exception as e:
+                print(f"⚠️ Could not retrieve training content from memory: {e}")
 
             return ""
 
@@ -2082,35 +2116,48 @@ Format as clear, structured text suitable for comprehensive course material anal
     async def _store_comprehensive_analysis(self, kb_id: str, user_id: str, analysis: str):
         """Store comprehensive analysis in AgentCore Memory."""
         try:
-            memory_id = f"MyTutorFileKnowledgeBase-{kb_id[:10]}"
-            
-            # Create or get memory
-            memory = await self.memory_manager.create_memory(
-                memory_id=memory_id,
-                memory_type="SEMANTIC",
-                name="fileSemanticMemory"
+            if self.memory is None:
+                self.memory = self._init_memory()
+
+            if not self.memory:
+                print(f"⚠️ Memory not initialized, skipping comprehensive analysis storage")
+                return
+
+            session_manager = MemorySessionManager(
+                memory_id=self.memory.get("id"),
+                region_name=self.region
             )
-            
+
             # Store the comprehensive analysis (clean session ID for AWS)
             session_id = self._clean_session_id(f"comprehensiveAnalysis{kb_id}")
-            
-            await self.memory_manager.store_turn(
-                memory_id=memory_id,
-                session_id=session_id,
-                user_message="Comprehensive Analysis Request",
-                assistant_message=analysis,
-                metadata={
-                    "type": "comprehensive_analysis",
-                    "knowledge_base_id": kb_id,
-                    "user_id": user_id,
-                    "timestamp": datetime.now().isoformat()
-                }
+
+            session = session_manager.create_memory_session(
+                actor_id=user_id,
+                session_id=session_id
             )
-            
+
+            # Chunk if analysis is too large
+            if len(analysis) > 8000:
+                chunks = [analysis[i:i+8000] for i in range(0, len(analysis), 8000)]
+                print(f"📄 Splitting comprehensive analysis into {len(chunks)} chunks")
+            else:
+                chunks = [analysis]
+
+            for chunk in chunks:
+                session.add_turns(
+                    messages=[
+                        ConversationalMessage(
+                            f"Comprehensive Analysis for KB {kb_id}:\n\n{chunk}",
+                            MessageRole.ASSISTANT
+                        )
+                    ]
+                )
+
             print(f"✅ Stored comprehensive analysis in memory for KB {kb_id}")
-            
+
         except Exception as e:
-            print(f"❌ Failed to store comprehensive analysis in memory: {e}")
+            print(f"⚠️ Could not store comprehensive analysis in memory: {e}")
+            print(f"ℹ️ This is non-critical - analysis is available in processed_results")
 
     async def _store_training_content_in_memory(self, kb_id: str, user_id: str, training_content: str):
         """Store generated training content in AgentCore Memory."""
@@ -2349,7 +2396,7 @@ Format as JSON:
                 "traceback": error_details
             }
 
-    async def _generate_mcq_question(self, knowledge_base_id: str, session_id: str, questions_answered: int) -> Dict[str, Any]:
+    async def _generate_mcq_question(self, knowledge_base_id: str, session_id: str, questions_answered: int, processed_results: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate a single MCQ question for training based on actual knowledge base content."""
         try:
             # Determine difficulty based on progress
@@ -2359,17 +2406,53 @@ Format as JSON:
                 difficulty = "intermediate"
             else:
                 difficulty = "advanced"
-            
-            # Retrieve actual content from the knowledge base
-            user_id = session_id.split('_')[0] if '_' in session_id else "admin"  # Extract user_id from session_id
-            kb_content = await self._retrieve_kb_content_from_memory(knowledge_base_id, user_id)
-            
+
+            print(f"🎯 Generating MCQ question #{questions_answered + 1}")
+            print(f"📦 Processed results provided: {bool(processed_results)}")
+
+            if processed_results:
+                print(f"📊 Processed results structure:")
+                print(f"   Top-level keys: {list(processed_results.keys())}")
+                if 'image' in processed_results:
+                    print(f"   Image keys: {list(processed_results['image'].keys())}")
+
+            # **FAST PATH**: Use processed_results directly from backend (skip slow memory retrieval)
+            kb_content = ""
+            if processed_results:
+                print(f"✅ Using processed_results from backend (fast path)")
+                # Extract educational content from image results
+                image_results = processed_results.get('image', {}).get('results', {}).get('image', [])
+                print(f"   Extracting from image results: {len(image_results) if image_results else 0} items")
+                if image_results:
+                    for result in image_results:
+                        edu_content = result.get('content', {}).get('educational_content', {})
+                        if edu_content and edu_content.get('full_text_content'):
+                            print(f"✅ Found educational content!")
+                            kb_content = f"=== EDUCATIONAL CONTENT ===\n{edu_content['full_text_content']}\n"
+
+                            # Add key concepts
+                            if edu_content.get('key_concepts'):
+                                kb_content += f"\nKey Concepts: {', '.join(edu_content['key_concepts'])}\n"
+
+                            # Add commands
+                            if edu_content.get('commands'):
+                                kb_content += "\nCommands/Functions:\n"
+                                for cmd in edu_content['commands'][:15]:
+                                    kb_content += f"  • {cmd.get('name', '')}: {cmd.get('description', '')}\n"
+
+                            print(f"📊 Loaded {len(kb_content)} characters from processed_results")
+                            break
+
+            # Fallback if no content found
             if not kb_content:
-                print(f"⚠️ No content found in memory for KB {knowledge_base_id}, using fallback")
+                print(f"❌ No educational content available, using generic fallback")
                 kb_content = "No specific content available. Generate general educational questions."
-            
-            # Also try to get training content if available
-            training_content = await self._retrieve_training_content_from_memory(knowledge_base_id, user_id)
+            else:
+                print(f"✅ Final kb_content length: {len(kb_content)} characters")
+                print(f"   Content preview: {kb_content[:200]}...")
+
+            # Skip training content retrieval for speed (it's slow and usually empty)
+            training_content = ""
 
             # Add variety to question generation by focusing on different aspects
             focus_areas = [
@@ -2430,18 +2513,38 @@ Format as JSON:
 IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat common question patterns.
 """
 
-            response = self.bedrock_client.invoke_model(
-                modelId=BEDROCK_MODEL,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 1500,
-                    "temperature": 0.7,  # Higher temperature for more variation
-                    "messages": [{"role": "user", "content": prompt}]
-                })
-            )
-            
-            result = json.loads(response['body'].read())
-            question_json = result['content'][0]['text']
+            print(f"🔧 Sending prompt to Bedrock")
+            print(f"   KB content in prompt: {len(kb_content_to_use)} chars")
+            print(f"   First 100 chars of KB content: {kb_content_to_use[:100]}")
+
+            # Call Bedrock with retry logic for throttling
+            max_retries = 3
+            retry_delay = 2  # Start with 2 seconds
+
+            for attempt in range(max_retries):
+                try:
+                    response = self.bedrock_client.invoke_model(
+                        modelId=BEDROCK_MODEL,
+                        body=json.dumps({
+                            "anthropic_version": "bedrock-2023-05-31",
+                            "max_tokens": 1500,
+                            "temperature": 0.7,  # Higher temperature for more variation
+                            "messages": [{"role": "user", "content": prompt}]
+                        })
+                    )
+
+                    result = json.loads(response['body'].read())
+                    question_json = result['content'][0]['text']
+                    break  # Success, exit retry loop
+
+                except Exception as bedrock_error:
+                    if "ThrottlingException" in str(bedrock_error) and attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                        print(f"⚠️ Bedrock throttled, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
+                        import time
+                        time.sleep(wait_time)
+                    else:
+                        raise  # Re-raise if not throttling or last attempt
             
             # Try to parse the JSON response
             try:
@@ -2473,11 +2576,124 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
                 "session_id": session_id,
                 "question_number": questions_answered + 1
             }
-            
+
         except Exception as e:
+            print(f"❌ Failed to generate MCQ question: {e}")
+            import traceback
+            traceback.print_exc()
+            error_msg = str(e) or repr(e) or "Unknown error occurred"
             return {
                 "status": "error",
-                "message": f"Failed to generate MCQ question: {str(e)}"
+                "message": f"Failed to generate MCQ question: {error_msg}"
+            }
+
+    async def _generate_enhanced_question(self, knowledge_base_id: str, session_id: str, question_type: str, questions_answered: int, processed_results: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Generate a question of specified type (mcq, open_ended, fill_blank, etc.) based on actual KB content."""
+        try:
+            print(f"🎯 Generating {question_type} question #{questions_answered + 1}")
+            print(f"📦 Processed results provided: {bool(processed_results)}")
+
+            # Determine difficulty
+            if questions_answered < 5:
+                difficulty = "beginner"
+            elif questions_answered < 15:
+                difficulty = "intermediate"
+            else:
+                difficulty = "advanced"
+
+            # **FAST PATH**: Skip slow memory retrieval, use processed_results directly
+            print(f"📦 Processed results provided: {bool(processed_results)}")
+
+            kb_content = ""
+            if processed_results:
+                print(f"✅ Using processed_results from backend (fast path)")
+                # Extract educational content from processed_results
+                if processed_results:
+                    # Extract educational content from image results
+                    image_results = processed_results.get('image', {}).get('results', {}).get('image', [])
+                    if image_results:
+                        for result in image_results:
+                            edu_content = result.get('content', {}).get('educational_content', {})
+                            if edu_content and edu_content.get('full_text_content'):
+                                print(f"✅ Found educational content in processed_results!")
+                                kb_content = f"=== EDUCATIONAL CONTENT ===\n{edu_content['full_text_content']}\n"
+
+                                # Add key concepts
+                                if edu_content.get('key_concepts'):
+                                    kb_content += f"\nKey Concepts: {', '.join(edu_content['key_concepts'])}\n"
+
+                                # Add commands
+                                if edu_content.get('commands'):
+                                    kb_content += "\nCommands/Functions:\n"
+                                    for cmd in edu_content['commands'][:15]:
+                                        kb_content += f"  • {cmd.get('name', '')}: {cmd.get('description', '')}\n"
+
+                                print(f"📊 Loaded {len(kb_content)} characters from processed_results")
+                                break
+
+                # Final fallback if still no content
+                if not kb_content or len(kb_content) < 500:
+                    print(f"❌ No content available, falling back to MCQ")
+                    return await self._generate_mcq_question(knowledge_base_id, session_id, questions_answered)
+
+            # Prepare content
+            kb_content_length = len(kb_content)
+            if kb_content_length > 15000:
+                kb_content_to_use = self._extract_key_sections_for_training(kb_content, max_length=12000)
+            else:
+                kb_content_to_use = kb_content
+
+            # Generate question using training agent
+            if training_service and question_type != "mcq":
+                print(f"📚 Using training agent to generate {question_type} question")
+                assessment = await training_service.training_agent.generate_assessment(
+                    kb_content_to_use,
+                    {"type": "knowledge_base", "difficulty": difficulty},
+                    {
+                        "question_types": [question_type],
+                        "question_count": 1,
+                        "difficulty_levels": [difficulty]
+                    }
+                )
+
+                if assessment and assessment.questions:
+                    question = assessment.questions[0]
+                    question_dict = {
+                        "type": question.question_type,
+                        "question": question.question_text,
+                        "difficulty": question.difficulty,
+                        "topic": question.topic,
+                        "learning_objective": question.learning_objective
+                    }
+
+                    # Add type-specific fields
+                    if question_type == "open_ended":
+                        question_dict["suggested_answer"] = getattr(question, 'suggested_answer', "")
+                        question_dict["rubric"] = getattr(question, 'rubric', [])
+                    elif question_type == "fill_blank":
+                        question_dict["blanks"] = getattr(question, 'blanks', [])
+                        question_dict["answers"] = getattr(question, 'answers', [])
+
+                    return {
+                        "status": "completed",
+                        "question": question_dict,
+                        "session_id": session_id,
+                        "question_number": questions_answered + 1
+                    }
+                else:
+                    print(f"⚠️ Training agent returned no questions, falling back to MCQ")
+
+            # Fallback to MCQ
+            return await self._generate_mcq_question(knowledge_base_id, session_id, questions_answered)
+
+        except Exception as e:
+            print(f"❌ Failed to generate {question_type} question: {e}")
+            import traceback
+            traceback.print_exc()
+            error_msg = str(e) or repr(e) or "Unknown error occurred"
+            return {
+                "status": "error",
+                "message": f"Failed to generate {question_type} question: {error_msg}"
             }
 
     async def _generate_learning_content_from_results(self, knowledge_base_id: str, processed_results: Dict[str, Any]) -> Dict[str, Any]:
@@ -2492,9 +2708,30 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
                     "message": "No processed results provided"
                 }
 
+            # **CRITICAL FIX**: Transform nested structure to flat structure expected by training_service
+            # Current: processed_results['audio']['results']['audio'][0]
+            # Expected: content_data['audio'][0]
+            transformed_data = {}
+            for agent_type, agent_data in processed_results.items():
+                if isinstance(agent_data, dict) and 'results' in agent_data:
+                    # Extract the actual results from nested structure
+                    nested_results = agent_data['results']
+                    if isinstance(nested_results, dict):
+                        # Flatten: {'audio': {'results': {'audio': [...]}} -> {'audio': [...]}
+                        transformed_data.update(nested_results)
+                    else:
+                        transformed_data[agent_type] = nested_results
+                else:
+                    transformed_data[agent_type] = agent_data
+
+            print(f"   Transformed structure: {list(transformed_data.keys())}")
+            for key, val in transformed_data.items():
+                count = len(val) if isinstance(val, list) else 'not a list'
+                print(f"     {key}: {count} items")
+
             # Use training service to extract learning content
             if training_service:
-                result = await training_service.get_learning_content_from_kb(knowledge_base_id, processed_results)
+                result = await training_service.get_learning_content_from_kb(knowledge_base_id, transformed_data)
                 return result
             else:
                 return {
@@ -2504,6 +2741,8 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
 
         except Exception as e:
             logger.error(f"Failed to generate learning content from results: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "status": "error",
                 "message": f"Failed to generate learning content: {str(e)}"
@@ -2709,7 +2948,17 @@ def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
             knowledge_base_id = payload.get("knowledge_base_id")
             session_id = payload.get("session_id")
             questions_answered = payload.get("questions_answered", 0)
-            result = asyncio.run(processor._generate_mcq_question(knowledge_base_id, session_id, questions_answered))
+            processed_results = payload.get("processed_results")  # Get processed_results from payload
+            result = asyncio.run(processor._generate_mcq_question(knowledge_base_id, session_id, questions_answered, processed_results))
+            return result
+
+        elif action == "generate_enhanced_question":
+            knowledge_base_id = payload.get("knowledge_base_id")
+            session_id = payload.get("session_id")
+            question_type = payload.get("question_type", "mcq")
+            questions_answered = payload.get("questions_answered", 0)
+            processed_results = payload.get("processed_results")  # Get processed_results from payload
+            result = asyncio.run(processor._generate_enhanced_question(knowledge_base_id, session_id, question_type, questions_answered, processed_results))
             return result
 
         elif action == "get_learning_content":

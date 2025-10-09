@@ -49,8 +49,6 @@ interface LearningContent {
   summary: string;
   key_concepts: string[];
   learning_objectives: string[];
-  topics_covered: string[];
-  estimated_study_time: number;
 }
 
 interface EnhancedTrainingInterfaceProps {
@@ -596,55 +594,6 @@ export const EnhancedTrainingInterface: React.FC<EnhancedTrainingInterfaceProps>
                     {concept}
                   </span>
                 ))}
-              </div>
-            </div>
-
-            {/* Topics Covered */}
-            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <FileText className="w-5 h-5 text-green-400" />
-                <h4 className="text-lg font-semibold text-green-200">Topics Covered</h4>
-              </div>
-              <div className="grid md:grid-cols-2 gap-2">
-                {learningContent.topics_covered.map((topic, index) => (
-                  <div key={index} className="flex items-center gap-2 text-green-100">
-                    <CheckCircle className="w-4 h-4 text-green-400" />
-                    {topic}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Study Progress */}
-            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-yellow-400" />
-                  <h4 className="text-lg font-semibold text-yellow-200">Study Progress</h4>
-                </div>
-                <div className="text-yellow-200">
-                  Recommended: {learningContent.estimated_study_time} minutes
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between text-sm text-yellow-100">
-                <span>Time Studied: {formatTime(studyTime)}</span>
-                <span>
-                  {studyTime >= learningContent.estimated_study_time * 60 ? (
-                    <span className="text-green-400 font-medium">✓ Ready for Assessment</span>
-                  ) : (
-                    <span>Continue studying...</span>
-                  )}
-                </span>
-              </div>
-              
-              <div className="w-full bg-yellow-500/20 rounded-full h-2 mt-3">
-                <div
-                  className="bg-yellow-400 h-2 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${Math.min((studyTime / (learningContent.estimated_study_time * 60)) * 100, 100)}%`
-                  }}
-                />
               </div>
             </div>
 

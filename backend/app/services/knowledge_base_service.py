@@ -69,6 +69,10 @@ class TrainingSession(BaseModel):
     questions_answered: int = 0
     correct_answers: int = 0
     score: float = 0.0
+    # Configuration
+    question_types: List[str] = ["mcq", "open_ended"]
+    question_count: int = 10
+    study_time: int = 0
 
 
 class KnowledgeBaseService:
@@ -448,7 +452,15 @@ class KnowledgeBaseService:
             raise ValueError("Knowledge base not found")
 
         try:
-            # **NEW APPROACH**: Use stored processed_results directly
+            # **PRIORITY 1**: Extract from training_content if available
+            if kb.training_content:
+                print(f"✅ Found training_content for KB {kb_id}, extracting...")
+                extracted_content = self._extract_from_training_content(kb.training_content)
+                if extracted_content:
+                    print(f"✅ Successfully extracted content from training_content")
+                    return extracted_content
+
+            # **PRIORITY 2**: Use stored processed_results
             if kb.processed_results:
                 print(f"✅ Found stored processing results for KB {kb_id}")
                 print(f"   Agent types: {list(kb.processed_results.keys())}")
@@ -483,6 +495,48 @@ class KnowledgeBaseService:
             traceback.print_exc()
             return self._generate_fallback_learning_content(kb)
     
+    def _extract_from_training_content(self, training_content: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Extract learning content from training_content field."""
+        try:
+            import re
+            content_str = training_content.get('training_content', '')
+
+            if not content_str:
+                return None
+
+            # Find JSON object in the string
+            json_match = re.search(r'\{[\s\S]*\}', content_str)
+            if not json_match:
+                return None
+
+            parsed = json.loads(json_match.group(0))
+
+            # Extract and format key concepts
+            key_concepts = []
+            for concept in parsed.get('key_concepts', []):
+                if isinstance(concept, dict):
+                    key_concepts.append(concept.get('term', ''))
+                else:
+                    key_concepts.append(str(concept))
+
+            # Get learning objectives
+            learning_objectives = parsed.get('learning_objectives', [])
+
+            # Create summary from content_summary
+            summary = parsed.get('content_summary', '')
+
+            if not summary:
+                summary = f"This course covers {', '.join(parsed.get('topic_areas', [])[:3])}"
+
+            return {
+                "summary": summary,
+                "key_concepts": key_concepts[:10],  # Limit to 10
+                "learning_objectives": learning_objectives[:7]  # Limit to 7
+            }
+        except Exception as e:
+            print(f"⚠️ Failed to extract from training_content: {e}")
+            return None
+
     def _generate_fallback_learning_content(self, kb: KnowledgeBase) -> Dict[str, Any]:
         """Generate fallback learning content when agent is not available."""
         return {
@@ -490,7 +544,7 @@ class KnowledgeBaseService:
                       f"The content has been processed from {kb.total_files} files and is ready for interactive learning.",
             "key_concepts": [
                 "Fundamental principles and definitions",
-                "Core methodologies and approaches", 
+                "Core methodologies and approaches",
                 "Practical applications and examples",
                 "Advanced topics and considerations",
                 "Best practices and common patterns"
@@ -501,15 +555,7 @@ class KnowledgeBaseService:
                 "Analyze relationships between different topics",
                 "Evaluate different approaches and methods",
                 "Create solutions using the acquired knowledge"
-            ],
-            "topics_covered": [
-                "Introduction and Overview",
-                "Core Concepts",
-                "Practical Applications", 
-                "Advanced Topics",
-                "Summary and Review"
-            ],
-            "estimated_study_time": max(5, kb.total_files * 3)  # 3 minutes per file, minimum 5
+            ]
         }
 
     async def start_training_session(
@@ -532,16 +578,12 @@ class KnowledgeBaseService:
             id=session_id,
             knowledge_base_id=kb_id,
             user_id=user_id,
-            created_at=datetime.now().isoformat()
+            created_at=datetime.now().isoformat(),
+            question_types=question_types or ["mcq", "open_ended"],
+            question_count=question_count or 10,
+            study_time=study_time or 0
         )
-        
-        # Store session configuration
-        session_config = {
-            "question_types": question_types or ["mcq", "open_ended"],
-            "question_count": question_count or 10,
-            "study_time": study_time or 0
-        }
-        
+
         self.training_sessions[session_id] = session
         
         # Generate first question
@@ -563,15 +605,32 @@ class KnowledgeBaseService:
         try:
             session = self.training_sessions[session_id]
             kb = self.knowledge_bases[session.knowledge_base_id]
-            
+
+            # Determine which question type to generate (cycle through configured types)
+            question_type = session.question_types[session.questions_answered % len(session.question_types)]
+
             print(f"🧠 Generating question {session.questions_answered + 1} for session {session_id}")
             print(f"📚 Knowledge base: {kb.name} (ID: {kb.id})")
-            
-            # Call agent to generate MCQ question
-            result = await agent_client.generate_mcq_question(
+            print(f"❓ Question type: {question_type}")
+
+            # Add small delay to prevent Bedrock API throttling
+            if session.questions_answered > 0:
+                import asyncio
+                await asyncio.sleep(1.5)  # 1.5 second delay between questions
+
+            # Debug: Check what we're sending
+            print(f"🔍 KB has processed_results: {bool(kb.processed_results)}")
+            if kb.processed_results:
+                print(f"   Keys in processed_results: {list(kb.processed_results.keys())}")
+
+            # Call agent to generate question of the specified type
+            # Pass processed_results so agent can access educational content directly
+            result = await agent_client.generate_enhanced_question(
                 knowledge_base_id=kb.id,
                 session_id=session_id,
-                questions_answered=session.questions_answered
+                question_type=question_type,
+                questions_answered=session.questions_answered,
+                processed_results=kb.processed_results
             )
             
             # Validate the result and question structure

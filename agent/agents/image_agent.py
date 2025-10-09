@@ -133,16 +133,32 @@ class ImageAgent:
             # Extract basic image content and metadata
             image_data = await self._extract_image_content(resolved_path)
 
-            # Perform OCR extraction
-            ocr_result = await self._extract_text_with_ocr(resolved_path)
-            
-            # Analyze visual content with AI vision
-            visual_analysis = await self._analyze_visual_content(image_data, file_path)
-            
-            # Detect and analyze educational elements
-            educational_analysis = await self._analyze_educational_content(
-                image_data, ocr_result, visual_analysis, file_path
-            )
+            # **OPTIMIZED**: Single comprehensive Bedrock call for all content extraction
+            # This prevents throttling by consolidating multiple API calls into one
+            educational_content = await self._extract_educational_content(resolved_path)
+
+            # Use OCR only if Bedrock extraction failed or returned insufficient content
+            ocr_result = None
+            if not educational_content or not educational_content.get('full_text_content'):
+                print("⚠️ Educational content extraction incomplete, falling back to OCR...")
+                ocr_result = await self._extract_text_with_ocr(resolved_path)
+
+            # Skip redundant visual analysis calls to avoid throttling
+            # All content is already extracted in educational_content
+            visual_analysis = None
+            educational_analysis = None
+
+            # Create educational_analysis from educational_content
+            if educational_content:
+                educational_analysis = ImageAnalysisResult(
+                    content_type=educational_content.get('subject_area', 'general_image'),
+                    educational_value=0.9 if educational_content.get('full_text_content') else 0.3,
+                    visual_elements=[],
+                    ocr_result=ocr_result,
+                    key_concepts=educational_content.get('key_concepts', []),
+                    difficulty_level=educational_content.get('difficulty_level', 'intermediate'),
+                    confidence_score=0.85 if educational_content.get('full_text_content') else 0.5
+                )
             
             # Prepare comprehensive result
             result = {
@@ -157,7 +173,10 @@ class ImageAgent:
                     "has_transparency": image_data['metadata']['has_transparency'],
                     "dominant_colors": image_data.get('dominant_colors', []),
                     "thumbnail_base64": image_data.get('thumbnail_base64', ''),
-                    
+
+                    # **NEW**: Structured educational content for training
+                    "educational_content": educational_content if educational_content else {},
+
                     # Enhanced content extraction
                     "extracted_text": ocr_result.text if ocr_result else "",
                     "text_confidence": ocr_result.confidence if ocr_result else 0.0,
@@ -212,6 +231,140 @@ class ImageAgent:
                     "error": str(e)
                 }
     
+    async def _extract_educational_content(self, file_path: str) -> Dict[str, Any]:
+        """Extract structured educational content from image using Bedrock vision."""
+        try:
+            # Skip for SVG files
+            if file_path.lower().endswith('.svg'):
+                return {}
+
+            # Resolve and read image
+            resolved_path = self._resolve_file_path(file_path)
+
+            with open(resolved_path, 'rb') as f:
+                image_bytes = f.read()
+                image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+
+            print(f"📸 Extracting educational content from image using Bedrock vision...")
+
+            # Use Bedrock vision model to extract educational content
+            educational_prompt = """Please extract ALL educational content from this image in a structured format.
+
+This appears to be educational material (cheatsheet, diagram, notes, slides, etc.). Extract:
+
+1. **All Text Content**: Extract every visible text element, including:
+   - Titles and headings
+   - Command/function names and their descriptions
+   - Code examples and syntax
+   - Definitions and explanations
+   - Lists and bullet points
+   - Tables and structured data
+   - Annotations and notes
+
+2. **Key Concepts**: List the main concepts, topics, or subjects covered
+
+3. **Commands/Functions** (if applicable): Extract all commands, functions, methods with their descriptions
+
+4. **Examples** (if applicable): Code snippets, usage examples, sample outputs
+
+5. **Learning Objectives**: What should someone learn from this material?
+
+Return your response as a JSON object with this exact structure:
+{
+    "full_text_content": "Complete text extracted from the image, preserving structure and formatting",
+    "key_concepts": ["concept1", "concept2", ...],
+    "commands": [
+        {"name": "command_name", "description": "what it does", "syntax": "usage syntax"},
+        ...
+    ],
+    "topics": [
+        {"topic": "topic_name", "description": "detailed explanation"},
+        ...
+    ],
+    "examples": ["example1", "example2", ...],
+    "learning_objectives": ["objective1", "objective2", ...],
+    "subject_area": "programming|math|science|business|etc",
+    "difficulty_level": "beginner|intermediate|advanced"
+}
+
+Make sure to extract EVERYTHING visible in the image. Be comprehensive and detailed."""
+
+            # Try multiple models for better availability
+            model_ids = [
+                'anthropic.claude-3-5-sonnet-20240620-v1:0',
+                'anthropic.claude-3-sonnet-20240229-v1:0',
+                'anthropic.claude-3-haiku-20240307-v1:0'
+            ]
+
+            for model_id in model_ids:
+                try:
+                    response = self.bedrock_client.invoke_model(
+                        modelId=model_id,
+                        body=json.dumps({
+                            "anthropic_version": "bedrock-2023-05-31",
+                            "max_tokens": 4096,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "image",
+                                            "source": {
+                                                "type": "base64",
+                                                "media_type": "image/png",
+                                                "data": image_base64
+                                            }
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": educational_prompt
+                                        }
+                                    ]
+                                }
+                            ]
+                        })
+                    )
+
+                    result = json.loads(response['body'].read())
+                    content_text = result['content'][0]['text']
+
+                    # Parse JSON response
+                    try:
+                        # Try to find JSON in the response
+                        import re
+                        json_match = re.search(r'\{[\s\S]*\}', content_text)
+                        if json_match:
+                            educational_data = json.loads(json_match.group(0))
+                            print(f"✅ Successfully extracted educational content using {model_id}")
+                            return educational_data
+                        else:
+                            # Fallback: return as plain text
+                            return {
+                                "full_text_content": content_text,
+                                "key_concepts": [],
+                                "subject_area": "unknown",
+                                "difficulty_level": "unknown"
+                            }
+                    except json.JSONDecodeError:
+                        # Return as plain text fallback
+                        return {
+                            "full_text_content": content_text,
+                            "key_concepts": [],
+                            "subject_area": "unknown",
+                            "difficulty_level": "unknown"
+                        }
+
+                except Exception as model_error:
+                    print(f"⚠️ Model {model_id} failed: {model_error}")
+                    continue
+
+            print(f"❌ All Bedrock models failed for educational content extraction")
+            return {}
+
+        except Exception as e:
+            logger.error(f"Error extracting educational content: {e}")
+            return {}
+
     async def _extract_image_content(self, file_path: str) -> Dict[str, Any]:
         """Extract image content and metadata."""
         try:

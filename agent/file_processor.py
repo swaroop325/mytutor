@@ -8,6 +8,8 @@ import base64
 import json
 import mimetypes
 import time
+import threading
+from queue import Queue
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -32,9 +34,14 @@ except ImportError:
     training_service = None
 
 
+# Global memory save queue and progress tracking
+memory_save_queue = Queue()
+memory_save_progress = {}  # session_id -> {chunks_saved, total_chunks, status}
+
+
 class FileProcessor:
     """Processor for uploaded files and direct links."""
-    
+
     def __init__(self, region: str = "us-east-1"):
         self.region = region
         self.agent = Agent()
@@ -44,10 +51,73 @@ class FileProcessor:
         self._memory_cache = {}  # Cache to reduce GetMemory calls
         self._session_cache = {}  # Cache memory sessions
         self._last_memory_check = 0  # Timestamp of last memory check
-        
+
         # Use the specialized agent manager
         self.agent_manager = agent_manager
-    
+
+        # Start background memory save worker
+        self._start_memory_save_worker()
+
+    def _start_memory_save_worker(self):
+        """Start background worker to process memory saves with rate limiting."""
+        worker_thread = threading.Thread(target=self._memory_save_worker, daemon=True)
+        worker_thread.start()
+        print("✅ Memory save worker started (rate-limited queue)")
+
+    def _memory_save_worker(self):
+        """Background worker that processes memory save queue with rate limiting."""
+        while True:
+            try:
+                # Get task from queue (blocks until item available)
+                task = memory_save_queue.get()
+
+                if task is None:  # Poison pill to stop worker
+                    break
+
+                session_id = task.get('session_id')
+                user_id = task.get('user_id')
+                result = task.get('result')
+                chunk_index = task.get('chunk_index', 0)
+                total_chunks = task.get('total_chunks', 1)
+
+                # Update progress
+                if session_id not in memory_save_progress:
+                    memory_save_progress[session_id] = {
+                        'chunks_saved': 0,
+                        'total_chunks': total_chunks,
+                        'status': 'saving'
+                    }
+
+                try:
+                    # Perform the actual save with rate limiting
+                    time.sleep(1.0)  # 1 second delay to avoid AWS throttling (AgentCore Memory has strict rate limits)
+
+                    # Call the actual save method
+                    self._save_chunk_to_memory_sync(user_id, result, task.get('chunk'))
+
+                    # Update progress
+                    memory_save_progress[session_id]['chunks_saved'] += 1
+                    saved = memory_save_progress[session_id]['chunks_saved']
+                    total = memory_save_progress[session_id]['total_chunks']
+
+                    if saved % 5 == 0 or saved == total:  # Log every 5 chunks or when complete
+                        print(f"💾 Memory save progress: {saved}/{total} chunks ({int(saved/total*100)}%)")
+
+                    if saved >= total:
+                        memory_save_progress[session_id]['status'] = 'completed'
+                        print(f"✅ All {total} chunks saved to memory for session {session_id}")
+
+                except Exception as e:
+                    print(f"⚠️ Failed to save chunk {chunk_index}: {e}")
+                    memory_save_progress[session_id]['status'] = 'partial'
+
+                # Mark task as done
+                memory_save_queue.task_done()
+
+            except Exception as e:
+                print(f"❌ Memory save worker error: {e}")
+                time.sleep(1)  # Brief pause before continuing
+
     def _init_memory(self):
         """Initialize or get existing memory for file knowledge bases with long-term strategies."""
         # Check cache first to reduce GetMemory calls
@@ -434,7 +504,7 @@ Metadata:
         except Exception as e:
             print(f"Warning: Could not save file to memory: {e}")
     
-    async def process_files_with_agents(self, file_paths: List[str], user_id: str) -> Dict[str, Any]:
+    async def process_files_with_agents(self, file_paths: List[str], user_id: str, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Process files using specialized agents."""
         try:
             print(f"🤖 Processing {len(file_paths)} files with specialized agents")
@@ -453,7 +523,11 @@ Metadata:
                         print(f"❌ {agent_type} agent error: {error_msg}")
                     elif result.get('status') == 'completed':
                         success_count += 1
-                        await self._save_agent_result_to_memory(user_id, result)
+                        # **PERFORMANCE FIX**: Skip memory saves - they cause throttling and aren't used for learning content
+                        # Learning content comes from training_content field, not memory
+                        # Memory saves would be useful for RAG queries, but that's not implemented yet
+                        print(f"✅ {agent_type} processing completed, skipping memory save (performance optimization)")
+                        # TODO: Re-enable memory saves when implementing RAG-based Q&A
 
             # If there are errors, return error status with detailed message
             if errors:
@@ -482,6 +556,117 @@ Metadata:
                 "message": str(e)
             }
     
+    def _queue_agent_result_for_memory(self, user_id: str, result: Dict[str, Any], session_id: Optional[str] = None):
+        """Queue agent result chunks for background memory saving (non-blocking)."""
+        try:
+            if self.memory is None:
+                self.memory = self._init_memory()
+
+            if not self.memory:
+                print("⚠️ Memory not available, skipping queue")
+                return
+
+            # Prepare chunks
+            file_path = result.get('file_path', 'unknown')
+            content = result.get('content', {})
+
+            # Separate large text fields from metadata
+            large_text_fields = {}
+            content_summary = {}
+
+            for key, value in content.items():
+                if isinstance(value, str) and len(value) > 1000:
+                    large_text_fields[key] = value
+                    content_summary[key] = f"[{len(value)} characters - stored separately]"
+                else:
+                    content_summary[key] = value
+
+            # Build memory content
+            memory_content = f"""
+Agent Type: {result.get('agent_type', 'unknown').upper()}
+File: {os.path.basename(file_path)}
+Status: {result.get('status')}
+Processed: {datetime.now().isoformat()}
+
+Content Summary:
+{json.dumps(content_summary, indent=2)}
+
+AI Analysis:
+{result.get('analysis', {}).get('ai_analysis', 'No analysis available')}
+
+Metadata:
+{json.dumps(result.get('metadata', {}), indent=2)}
+"""
+
+            if large_text_fields:
+                for field_name, field_value in large_text_fields.items():
+                    memory_content += f"\n\n=== {field_name.upper()} ===\n{field_value}"
+
+            # Chunk the content
+            content_chunks = self._chunk_content_contextually(memory_content, result.get('metadata', {}))
+
+            # Filter out oversized chunks
+            valid_chunks = [chunk for chunk in content_chunks if len(chunk) <= 9000]
+
+            print(f"📋 Queuing {len(valid_chunks)} chunks for background memory save")
+
+            # Queue each chunk for background processing
+            for i, chunk in enumerate(valid_chunks[:20]):  # Limit to 20 chunks
+                memory_save_queue.put({
+                    'session_id': session_id or f"file_{abs(hash(file_path)) % 10000000}",
+                    'user_id': user_id,
+                    'result': result,
+                    'chunk': chunk,
+                    'chunk_index': i,
+                    'total_chunks': len(valid_chunks)
+                })
+
+        except Exception as e:
+            print(f"⚠️ Error queuing chunks for memory: {e}")
+
+    def _save_chunk_to_memory_sync(self, user_id: str, result: Dict[str, Any], chunk: str):
+        """Synchronously save a single chunk to memory (called by background worker)."""
+        try:
+            if self.memory is None:
+                self.memory = self._init_memory()
+
+            if not self.memory:
+                return
+
+            session_manager = MemorySessionManager(
+                memory_id=self.memory.get("id"),
+                region_name=self.region
+            )
+
+            # Create session ID
+            file_path = result.get('file_path', 'unknown')
+            content_id = f"agent_{result.get('agent_type')}_{os.path.basename(file_path)}"
+            clean_content_id = self._clean_session_id(content_id)
+
+            # Create or get session
+            session_cache_key = f"{user_id}_{clean_content_id}"
+            if session_cache_key in self._session_cache:
+                session = self._session_cache[session_cache_key]
+            else:
+                session = session_manager.create_memory_session(
+                    actor_id=user_id,
+                    session_id=clean_content_id
+                )
+                self._session_cache[session_cache_key] = session
+
+            # Save the chunk
+            session.add_turns(
+                messages=[
+                    ConversationalMessage(
+                        chunk,
+                        MessageRole.ASSISTANT
+                    )
+                ]
+            )
+
+        except Exception as e:
+            raise Exception(f"Failed to save chunk: {e}")
+
     async def _save_agent_result_to_memory(self, user_id: str, result: Dict[str, Any]):
         """Save agent processing result to memory."""
         try:
@@ -508,16 +693,46 @@ Metadata:
                 session_id=clean_content_id
             )
             
-            # Format content for memory storage
+            # **FIX**: Extract large fields and handle them separately for memory storage
+            content = result.get('content', {})
+
+            # Separate large text fields from metadata
+            large_text_fields = {}
+            content_summary = {}
+
+            for key, value in content.items():
+                # **CRITICAL**: Always include educational_content fully, don't summarize it
+                if key == "educational_content" and isinstance(value, dict):
+                    content_summary[key] = value  # Keep full dict
+                elif isinstance(value, str) and len(value) > 1000:
+                    # Store large text separately for chunking
+                    large_text_fields[key] = value
+                    content_summary[key] = f"[{len(value)} characters - stored separately]"
+                else:
+                    content_summary[key] = value
+
+            # **CRITICAL**: For image files with educational_content, extract the full text
+            educational_content = content.get('educational_content', {})
+            educational_text = ""
+            if educational_content and isinstance(educational_content, dict):
+                full_text = educational_content.get('full_text_content', '')
+                if full_text:
+                    educational_text = f"\n\n=== EDUCATIONAL CONTENT ===\n{full_text}\n"
+                    # Also add structured data
+                    if educational_content.get('key_concepts'):
+                        educational_text += f"\nKey Concepts: {', '.join(educational_content['key_concepts'])}\n"
+                    if educational_content.get('commands'):
+                        educational_text += f"\nCommands:\n"
+                        for cmd in educational_content['commands'][:15]:
+                            educational_text += f"  • {cmd.get('name', '')}: {cmd.get('description', '')}\n"
+
+            # Build base memory content with summaries
             memory_content = f"""
 Agent Type: {result.get('agent_type', 'unknown').upper()}
 File: {os.path.basename(file_path)}
 Status: {result.get('status')}
 Processed: {datetime.now().isoformat()}
-
-Content Analysis:
-{json.dumps(result.get('content', {}), indent=2)}
-
+{educational_text}
 AI Analysis:
 {result.get('analysis', {}).get('ai_analysis', 'No analysis available')}
 
@@ -525,28 +740,68 @@ Metadata:
 {json.dumps(result.get('metadata', {}), indent=2)}
 """
 
+            # Add large text fields with proper chunking
+            if large_text_fields:
+                for field_name, field_value in large_text_fields.items():
+                    memory_content += f"\n\n=== {field_name.upper()} ===\n{field_value}"
+
             # Use contextual chunking to avoid 9000 char limit
             content_chunks = self._chunk_content_contextually(memory_content, result.get('metadata', {}))
 
-            for chunk in content_chunks:
-                session.add_turns(
-                    messages=[
-                        ConversationalMessage(
-                            chunk,
-                            MessageRole.ASSISTANT
-                        )
-                    ]
-                )
+            # Store chunks with rate limiting to avoid throttling
+            # **PERFORMANCE FIX**: Limit chunks and fail fast to avoid blocking processing
+            chunks_saved = 0
+            chunks_failed = 0
+            max_chunks_to_save = 20  # Limit to avoid long processing times
+            import time
 
-            if len(content_chunks) > 1:
-                print(f"✅ Saved {result.get('agent_type')} agent result in {len(content_chunks)} chunks: {os.path.basename(file_path)}")
+            for i, chunk in enumerate(content_chunks[:max_chunks_to_save], 1):
+                try:
+                    # Smaller delay to avoid blocking too long
+                    if i > 1:  # Don't delay on first chunk
+                        delay = 0.1  # Reduced from 0.5s to 100ms
+                        time.sleep(delay)
+
+                    # Validate chunk size before attempting to save
+                    if len(chunk) > 9000:
+                        print(f"⚠️ Chunk {i} is {len(chunk)} chars - skipping (too large)")
+                        chunks_failed += 1
+                        continue  # Skip chunks that are too large instead of emergency splitting
+
+                    session.add_turns(
+                        messages=[
+                            ConversationalMessage(
+                                chunk,
+                                MessageRole.ASSISTANT
+                            )
+                        ]
+                    )
+                    chunks_saved += 1
+                except Exception as chunk_error:
+                    error_msg = str(chunk_error)
+                    chunks_failed += 1
+                    # **FAIL FAST**: Don't retry on throttle - just skip and continue
+                    if "ThrottledException" in error_msg or "Rate exceeded" in error_msg:
+                        print(f"⚠️ Rate limit hit on chunk {i}, skipping rest of chunks to avoid blocking")
+                        break  # Stop trying to save more chunks
+                    else:
+                        print(f"⚠️ Failed to save chunk {i}/{len(content_chunks)}: {chunk_error}")
+
+            if chunks_saved > 0:
+                if chunks_failed > 0:
+                    print(f"✅ Saved {chunks_saved}/{len(content_chunks)} chunks to memory for {result.get('agent_type')}: {os.path.basename(file_path)}")
+                else:
+                    print(f"✅ Saved {result.get('agent_type')} result in {chunks_saved} chunks: {os.path.basename(file_path)}")
             else:
-                print(f"✅ Saved {result.get('agent_type')} agent result to memory: {os.path.basename(file_path)}")
-            
-            print(f"✅ Saved {result.get('agent_type')} agent result to memory: {os.path.basename(file_path)}")
-            
+                print(f"⚠️ Could not save any chunks to memory for {result.get('agent_type')}")
+
         except Exception as e:
-            print(f"⚠️ Could not save agent result to memory: {e}")
+            error_msg = str(e)
+            if "Member must have length less than or equal to 9000" in error_msg:
+                print(f"⚠️ Content chunk exceeded 9K limit. Check chunking logic.")
+            else:
+                print(f"⚠️ Could not save agent result to memory: {e}")
+            print(f"ℹ️ Content is available in local processed_results storage ✅")
     
     async def generate_training_content(self, kb_id: str, agent_results: Dict[str, Any],
                                       training_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

@@ -20,6 +20,50 @@ from config.model_manager import model_config_manager
 logger = logging.getLogger(__name__)
 
 
+# Global rate limiter for Bedrock API calls
+class BedrockRateLimiter:
+    """Rate limiter to prevent Bedrock throttling with adaptive backoff."""
+    def __init__(self, max_requests_per_minute=8):
+        self.max_requests = max_requests_per_minute
+        self.request_times = []
+        self.backoff_until = 0  # Timestamp to wait until after throttling
+        import time
+        self.time = time
+
+    async def acquire(self):
+        """Wait if necessary to respect rate limits."""
+        # Check if we're in backoff period
+        if self.time.time() < self.backoff_until:
+            wait_time = self.backoff_until - self.time.time()
+            print(f"⏳ Rate limiter: waiting {wait_time:.1f}s (backoff after throttle)")
+            await asyncio.sleep(wait_time)
+
+        # Remove requests older than 1 minute
+        current_time = self.time.time()
+        self.request_times = [t for t in self.request_times if current_time - t < 60]
+
+        # If at limit, wait until oldest request expires
+        if len(self.request_times) >= self.max_requests:
+            wait_time = 60 - (current_time - self.request_times[0]) + 0.1
+            print(f"⏳ Rate limiter: {len(self.request_times)}/{self.max_requests} requests in last minute, waiting {wait_time:.1f}s")
+            await asyncio.sleep(wait_time)
+            # Clean again after waiting
+            current_time = self.time.time()
+            self.request_times = [t for t in self.request_times if current_time - t < 60]
+
+        # Record this request
+        self.request_times.append(self.time.time())
+
+    def set_backoff(self, seconds=30):
+        """Set backoff period after receiving throttling error."""
+        self.backoff_until = self.time.time() + seconds
+        print(f"🛑 Rate limiter: entering {seconds}s backoff period")
+
+
+# Global rate limiter instance (8 requests/minute is conservative for shared Bedrock accounts)
+bedrock_rate_limiter = BedrockRateLimiter(max_requests_per_minute=8)
+
+
 @dataclass
 class AssessmentQuestion:
     """Represents a single assessment question with metadata."""
@@ -142,8 +186,8 @@ class TrainingAgent:
 
             # Smart content handling: extract key sections instead of simple truncation
             if len(content) > 20000:
-                print(f"⚠️ Warning: Content is long ({len(content):,} chars). Consider using extract_learning_content_chunked() for better results.")
-                content_excerpt = self._extract_key_content_for_questions(content, max_length=18000)
+                print(f"📚 Content is large ({len(content):,} chars), using smart extraction...")
+                content_excerpt = self._extract_smart_representative_content(content, max_length=18000)
             else:
                 content_excerpt = content
 
@@ -156,40 +200,50 @@ Provide a comprehensive analysis in JSON format with:
 1. summary: A 2-3 paragraph overview of what this content covers (be specific to the actual content, not generic)
 2. key_concepts: Array of 5-10 specific key concepts/terms students should understand
 3. learning_objectives: Array of 4-7 specific learning objectives (what students will be able to do after studying)
-4. topics_covered: Array of 6-12 specific topics covered in the content
-5. estimated_study_time: Estimated study time in minutes based on content depth and complexity
 
 Format response as valid JSON:
 {{
     "summary": "specific detailed summary of this content...",
     "key_concepts": ["specific concept 1", "specific concept 2", ...],
-    "learning_objectives": ["specific objective 1", ...],
-    "topics_covered": ["specific topic 1", "specific topic 2", ...],
-    "estimated_study_time": 15
+    "learning_objectives": ["specific objective 1", ...]
 }}
 
 Be specific to the actual content - do not use generic placeholders."""
 
+            # Apply rate limiting to prevent throttling
+            await bedrock_rate_limiter.acquire()
+
             model_spec = self.model_config
-            response = self.bedrock_client.invoke_model(
-                modelId=model_spec.model_id if model_spec else "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 2000,
-                    "temperature": 0.3,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
-            )
+            try:
+                response = self.bedrock_client.invoke_model(
+                    modelId=model_spec.model_id if model_spec else "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+                    body=json.dumps({
+                        "anthropic_version": "bedrock-2023-05-31",
+                        "max_tokens": 2000,
+                        "temperature": 0.3,
+                        "messages": [{"role": "user", "content": prompt}]
+                    })
+                )
+            except Exception as e:
+                # If throttled, set backoff period
+                if 'Throttling' in str(e) or 'TooManyRequests' in str(e):
+                    bedrock_rate_limiter.set_backoff(30)
+                raise
 
             result = json.loads(response['body'].read())
             response_text = result['content'][0]['text']
+
+            # Clean response text of control characters
+            import re
+            # Remove control characters except newline, tab, carriage return
+            response_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', response_text)
 
             # Parse JSON response
             try:
                 learning_content = json.loads(response_text)
 
                 # Validate required fields
-                required_fields = ["summary", "key_concepts", "learning_objectives", "topics_covered", "estimated_study_time"]
+                required_fields = ["summary", "key_concepts", "learning_objectives"]
                 for field in required_fields:
                     if field not in learning_content:
                         raise ValueError(f"Missing required field: {field}")
@@ -208,10 +262,6 @@ Be specific to the actual content - do not use generic placeholders."""
 
     def _create_fallback_learning_content(self, content: str) -> Dict[str, Any]:
         """Create fallback learning content when AI extraction fails."""
-        # Extract some basic info from content
-        word_count = len(content.split())
-        estimated_time = max(5, min(30, word_count // 200))  # 200 words per minute reading
-
         return {
             "summary": "This course material covers important concepts and information. "
                       "Review the content carefully to understand the key principles and their applications. "
@@ -228,14 +278,7 @@ Be specific to the actual content - do not use generic placeholders."""
                 "Apply learned principles to new situations",
                 "Analyze relationships between different topics",
                 "Evaluate different approaches and methods"
-            ],
-            "topics_covered": [
-                "Introduction and foundational concepts",
-                "Core principles and theories",
-                "Practical applications and examples",
-                "Advanced topics and extensions"
-            ],
-            "estimated_study_time": estimated_time
+            ]
         }
 
     async def extract_learning_content_chunked(self, content: str) -> Dict[str, Any]:
@@ -313,39 +356,120 @@ Be specific to the actual content - do not use generic placeholders."""
         """Merge multiple learning content results into a comprehensive one."""
         if not results:
             return self._create_fallback_learning_content("")
-        
+
         if len(results) == 1:
             return results[0]
-        
+
         # Merge summaries
         summaries = [r.get('summary', '') for r in results if r.get('summary')]
         merged_summary = " ".join(summaries[:3])  # Use first 3 summaries
-        
-        # Merge and deduplicate concepts, objectives, topics
+
+        # Merge and deduplicate concepts and objectives
         all_concepts = []
         all_objectives = []
-        all_topics = []
-        
+
         for result in results:
             all_concepts.extend(result.get('key_concepts', []))
             all_objectives.extend(result.get('learning_objectives', []))
-            all_topics.extend(result.get('topics_covered', []))
-        
+
         # Deduplicate while preserving order
         unique_concepts = list(dict.fromkeys(all_concepts))[:12]  # Limit to 12
         unique_objectives = list(dict.fromkeys(all_objectives))[:10]  # Limit to 10
-        unique_topics = list(dict.fromkeys(all_topics))[:15]  # Limit to 15
-        
-        # Calculate total estimated study time
-        total_time = sum(r.get('estimated_study_time', 0) for r in results)
-        
+
         return {
             "summary": merged_summary,
             "key_concepts": unique_concepts,
-            "learning_objectives": unique_objectives,
-            "topics_covered": unique_topics,
-            "estimated_study_time": min(total_time, 60)  # Cap at 60 minutes
+            "learning_objectives": unique_objectives
         }
+
+    def _extract_smart_representative_content(self, content: str, max_length: int = 18000) -> str:
+        """
+        Extract representative content from large documents using smart sampling.
+        Better than truncation - captures intro, structure, and conclusion.
+        """
+        if len(content) <= max_length:
+            return content
+
+        print(f"🔍 Smart extraction: {len(content):,} chars → {max_length:,} chars target")
+
+        # Split into lines for analysis
+        lines = content.split('\n')
+        total_lines = len(lines)
+
+        # Phase 1: Extract structural elements (headers, TOC, key sections)
+        structural_lines = []
+        regular_lines = []
+
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+
+            # Identify important structural elements
+            is_structural = (
+                line_stripped.isupper() or  # ALL CAPS (likely headers)
+                line_stripped.startswith('#') or  # Markdown headers
+                line_stripped.startswith('Chapter') or
+                line_stripped.startswith('Section') or
+                line_stripped.startswith('Module') or
+                line_stripped.startswith('Week') or
+                line_stripped.startswith('Day') or
+                line_stripped.endswith(':') or  # Section labels
+                'Table of Contents' in line_stripped or
+                'Overview' in line_stripped or
+                'Summary' in line_stripped or
+                'Introduction' in line_stripped or
+                'Conclusion' in line_stripped
+            )
+
+            if is_structural:
+                structural_lines.append((i, line))
+            else:
+                regular_lines.append((i, line))
+
+        # Phase 2: Build representative excerpt
+        excerpt_parts = []
+        current_length = 0
+
+        # Always include first 15% (introduction, overview)
+        intro_line_count = int(total_lines * 0.15)
+        intro_text = '\n'.join([lines[i] for i in range(min(intro_line_count, total_lines))])
+        excerpt_parts.append("=== INTRODUCTION & OVERVIEW ===\n" + intro_text)
+        current_length += len(intro_text)
+
+        # Include all structural elements (headers, TOC)
+        if structural_lines and current_length < max_length * 0.4:
+            structure_text = '\n'.join([line for _, line in structural_lines[:50]])  # Limit to 50 headers
+            excerpt_parts.append("\n\n=== DOCUMENT STRUCTURE ===\n" + structure_text)
+            current_length += len(structure_text)
+
+        # Sample from middle sections (if space available)
+        if current_length < max_length * 0.7:
+            middle_start = int(total_lines * 0.3)
+            middle_end = int(total_lines * 0.7)
+            middle_sample_size = min(100, (max_length - current_length) // 50)
+
+            if middle_start < middle_end:
+                step = max(1, (middle_end - middle_start) // middle_sample_size)
+                middle_lines = [lines[i] for i in range(middle_start, middle_end, step)]
+                middle_text = '\n'.join(middle_lines)
+                excerpt_parts.append("\n\n=== KEY CONTENT SAMPLES ===\n" + middle_text)
+                current_length += len(middle_text)
+
+        # Always include last 10% (conclusions, summaries)
+        if current_length < max_length * 0.9:
+            conclusion_start = int(total_lines * 0.9)
+            conclusion_text = '\n'.join([lines[i] for i in range(conclusion_start, total_lines)])
+            excerpt_parts.append("\n\n=== CONCLUSIONS & SUMMARY ===\n" + conclusion_text)
+
+        final_excerpt = '\n'.join(excerpt_parts)
+
+        # Truncate if still too long
+        if len(final_excerpt) > max_length:
+            final_excerpt = final_excerpt[:max_length] + "\n\n[Content truncated for processing]"
+
+        print(f"✅ Extracted {len(final_excerpt):,} chars with intro, structure, samples, and conclusions")
+        return final_excerpt
 
     def _extract_key_content_for_questions(self, content: str, max_length: int = 3000) -> str:
         """Extract key content sections for question generation instead of simple truncation."""

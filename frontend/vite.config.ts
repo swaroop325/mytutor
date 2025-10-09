@@ -13,4 +13,13 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['dcv'],
   },
+  server: {
+    allowedHosts: [
+      'mytutor.myintern.org',
+      'localhost',
+      '127.0.0.1'
+    ],
+    host: true, // allow network access
+    port: 5173
+  }
 })

@@ -704,7 +704,8 @@ class AgentClient:
         self,
         knowledge_base_id: str,
         session_id: str,
-        questions_answered: int
+        questions_answered: int,
+        processed_results: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Generate an MCQ question for training.
@@ -718,15 +719,22 @@ class AgentClient:
             Generated MCQ question
         """
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            payload = {
+                "action": "generate_mcq_question",
+                "knowledge_base_id": knowledge_base_id,
+                "session_id": session_id,
+                "questions_answered": questions_answered
+            }
+
+            # Include processed_results if provided (for speed - avoids slow memory retrieval)
+            if processed_results:
+                payload["processed_results"] = processed_results
+
+            # Use longer timeout for AI question generation (Bedrock API can take 30-60s)
+            async with httpx.AsyncClient(timeout=90.0) as client:
                 response = await client.post(
                     f"{self.agent_url}/invocations",
-                    json={
-                        "action": "generate_mcq_question",
-                        "knowledge_base_id": knowledge_base_id,
-                        "session_id": session_id,
-                        "questions_answered": questions_answered
-                    }
+                    json=payload
                 )
                 return self._parse_response(response.json())
         except Exception as e:
@@ -746,7 +754,8 @@ class AgentClient:
             Learning content with summary, concepts, objectives
         """
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            # Use longer timeout for AI content generation
+            async with httpx.AsyncClient(timeout=90.0) as client:
                 response = await client.post(
                     f"{self.agent_url}/invocations",
                     json={
@@ -777,7 +786,8 @@ class AgentClient:
             Learning content with summary, concepts, objectives
         """
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            # Use longer timeout for AI content generation
+            async with httpx.AsyncClient(timeout=90.0) as client:
                 response = await client.post(
                     f"{self.agent_url}/invocations",
                     json={
@@ -798,7 +808,8 @@ class AgentClient:
         knowledge_base_id: str,
         session_id: str,
         question_type: str,
-        questions_answered: int
+        questions_answered: int,
+        processed_results: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Generate an enhanced question (MCQ, open-ended, fill-blank, etc.) for training.
@@ -808,21 +819,29 @@ class AgentClient:
             session_id: Training session ID
             question_type: Type of question to generate
             questions_answered: Number of questions already answered
+            processed_results: Optional processed results from knowledge base (avoids file system access)
 
         Returns:
             Generated question
         """
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            payload = {
+                "action": "generate_enhanced_question",
+                "knowledge_base_id": knowledge_base_id,
+                "session_id": session_id,
+                "question_type": question_type,
+                "questions_answered": questions_answered
+            }
+
+            # Include processed_results if provided
+            if processed_results:
+                payload["processed_results"] = processed_results
+
+            # Use longer timeout for question generation (Bedrock API can be slow)
+            async with httpx.AsyncClient(timeout=90.0) as client:
                 response = await client.post(
                     f"{self.agent_url}/invocations",
-                    json={
-                        "action": "generate_enhanced_question",
-                        "knowledge_base_id": knowledge_base_id,
-                        "session_id": session_id,
-                        "question_type": question_type,
-                        "questions_answered": questions_answered
-                    }
+                    json=payload
                 )
                 return self._parse_response(response.json())
         except Exception as e:

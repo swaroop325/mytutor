@@ -27,3 +27,4 @@ openai-whisper  # For local audio transcription (primary method, no S3 required)
 pytesseract     # For local OCR (requires tesseract binary)
 easyocr         # Alternative OCR library
 ffmpeg-python   # Python wrapper for FFmpeg
+speech_recognition

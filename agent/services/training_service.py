@@ -119,9 +119,51 @@ class TrainingService:
                         combined_content.append(f"=== Video Analysis ===\n{analysis['ai_analysis']}\n")
                 
                 elif agent_type == "image":
-                    analysis = result.get("analysis", {})
-                    if isinstance(analysis, dict) and "ai_analysis" in analysis:
-                        combined_content.append(f"=== Image Analysis ===\n{analysis['ai_analysis']}\n")
+                    # **PRIORITY 1**: Extract structured educational content first
+                    educational_content = content.get("educational_content", {})
+                    if educational_content and educational_content.get("full_text_content"):
+                        # Use the comprehensive extracted content
+                        image_content_parts = [f"=== Image Educational Content ==="]
+
+                        # Add full text content
+                        full_text = educational_content.get("full_text_content", "")
+                        if full_text:
+                            image_content_parts.append(f"\n{full_text}\n")
+
+                        # Add structured content
+                        key_concepts = educational_content.get("key_concepts", [])
+                        if key_concepts:
+                            image_content_parts.append(f"\nKey Concepts: {', '.join(key_concepts)}")
+
+                        commands = educational_content.get("commands", [])
+                        if commands:
+                            image_content_parts.append("\n\nCommands/Functions:")
+                            for cmd in commands[:20]:  # Limit to 20 commands
+                                name = cmd.get("name", "")
+                                desc = cmd.get("description", "")
+                                if name and desc:
+                                    image_content_parts.append(f"  • {name}: {desc}")
+
+                        topics = educational_content.get("topics", [])
+                        if topics:
+                            image_content_parts.append("\n\nTopics:")
+                            for topic in topics:
+                                topic_name = topic.get("topic", "")
+                                topic_desc = topic.get("description", "")
+                                if topic_name:
+                                    image_content_parts.append(f"  • {topic_name}: {topic_desc}")
+
+                        combined_content.append("\n".join(image_content_parts) + "\n")
+
+                    # Fallback to extracted_text from OCR
+                    elif content.get("extracted_text"):
+                        combined_content.append(f"=== Image OCR Text ===\n{content['extracted_text']}\n")
+
+                    # Final fallback to ai_analysis
+                    else:
+                        analysis = result.get("analysis", {})
+                        if isinstance(analysis, dict) and "ai_analysis" in analysis:
+                            combined_content.append(f"=== Image Analysis ===\n{analysis['ai_analysis']}\n")
                 
                 # Also extract AI analysis from any agent
                 analysis = result.get("analysis", {})
