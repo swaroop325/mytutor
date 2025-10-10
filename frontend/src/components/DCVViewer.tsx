@@ -53,7 +53,7 @@ export const DCVViewerUI: React.FC<DCVViewerUIProps> = ({
   const resizeTimeoutRef = useRef<any>(null);
   const lastWidthRef = useRef(0);
   const lastHeightRef = useRef(0);
-  const reconnectAttemptsRef = useRef(0);
+
 
   const handleClose = () => {
     // Clear all timers

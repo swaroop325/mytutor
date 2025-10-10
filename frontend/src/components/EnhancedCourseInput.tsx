@@ -108,7 +108,7 @@ export const EnhancedCourseInput: React.FC<EnhancedCourseInputProps> = ({
   };
 
   const getSummary = () => {
-    const items = [];
+    const items: string[] = [];
     if (courseUrl.trim()) items.push(`Course URL: ${courseUrl}`);
     if (selectedFiles.length > 0) items.push(`${selectedFiles.length} uploaded files`);
     if (directLinks.length > 0) items.push(`${directLinks.length} direct links`);

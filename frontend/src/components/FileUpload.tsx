@@ -12,8 +12,7 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
-  Eye,
-  Download
+  Eye
 } from 'lucide-react';
 
 // File type configurations
