@@ -99,33 +99,33 @@ class ImageAgent:
         from pathlib import Path
         
         file_path_obj = Path(file_path)
-        print(f"🔍 IMAGE Agent - Resolving file path: {file_path_obj}")
+        logger.debug(f"IMAGE Agent - Resolving file path: {file_path_obj}")
         
         # If the path exists as-is, use it
         if file_path_obj.exists():
-            print(f"✅ IMAGE Agent - Found file at original path: {file_path_obj}")
+            logger.info(f"IMAGE Agent - Found file at original path: {file_path_obj}")
             return str(file_path_obj)
         
         # Try in backend directory (most common case)
         backend_path = Path("backend") / file_path_obj
         if backend_path.exists():
-            print(f"✅ IMAGE Agent - Found file at backend path: {backend_path}")
+            logger.info(f"IMAGE Agent - Found file at backend path: {backend_path}")
             return str(backend_path)
         
         # Try relative to backend directory (from agent directory)
         backend_relative_path = Path("../backend") / file_path_obj
         if backend_relative_path.exists():
-            print(f"✅ IMAGE Agent - Found file at backend relative path: {backend_relative_path}")
+            logger.info(f"IMAGE Agent - Found file at backend relative path: {backend_relative_path}")
             return str(backend_relative_path)
         
         # Return original path if nothing works
-        print(f"❌ IMAGE Agent - Could not resolve file path, using original: {file_path_obj}")
+        logger.error(f"IMAGE Agent - Could not resolve file path, using original: {file_path_obj}")
         return file_path
     
     async def process_file(self, file_path: str, user_id: str) -> Dict[str, Any]:
         """Process an image file with enhanced vision capabilities."""
         try:
-            print(f"🖼️ Enhanced IMAGE Agent processing: {file_path}")
+            logger.info(f"Enhanced IMAGE Agent processing: {file_path}")
 
             # Resolve file path
             resolved_path = self._resolve_file_path(file_path)
@@ -140,7 +140,7 @@ class ImageAgent:
             # Use OCR only if Bedrock extraction failed or returned insufficient content
             ocr_result = None
             if not educational_content or not educational_content.get('full_text_content'):
-                print("⚠️ Educational content extraction incomplete, falling back to OCR...")
+                logger.warning("Educational content extraction incomplete, falling back to OCR...")
                 ocr_result = await self._extract_text_with_ocr(resolved_path)
 
             # Skip redundant visual analysis calls to avoid throttling
@@ -211,8 +211,8 @@ class ImageAgent:
                     "has_educational_content": bool(educational_analysis and educational_analysis.educational_value > 0.3)
                 }
             }
-            
-            print(f"✅ Enhanced IMAGE Agent completed: {file_path} "
+
+            logger.info(f"Enhanced IMAGE Agent completed: {file_path} "
                   f"({image_data['metadata']['dimensions']}, "
                   f"Educational Value: {educational_analysis.educational_value if educational_analysis else 0:.2f})")
             return result
@@ -245,7 +245,7 @@ class ImageAgent:
                 image_bytes = f.read()
                 image_base64 = base64.b64encode(image_bytes).decode('utf-8')
 
-            print(f"📸 Extracting educational content from image using Bedrock vision...")
+            logger.info(f"📸 Extracting educational content from image using Bedrock vision...")
 
             # Use Bedrock vision model to extract educational content
             educational_prompt = """Please extract ALL educational content from this image in a structured format.
@@ -335,7 +335,7 @@ Make sure to extract EVERYTHING visible in the image. Be comprehensive and detai
                         json_match = re.search(r'\{[\s\S]*\}', content_text)
                         if json_match:
                             educational_data = json.loads(json_match.group(0))
-                            print(f"✅ Successfully extracted educational content using {model_id}")
+                            logger.info(f"Successfully extracted educational content using {model_id}")
                             return educational_data
                         else:
                             # Fallback: return as plain text
@@ -355,10 +355,10 @@ Make sure to extract EVERYTHING visible in the image. Be comprehensive and detai
                         }
 
                 except Exception as model_error:
-                    print(f"⚠️ Model {model_id} failed: {model_error}")
+                    logger.error(f"Model {model_id} failed: {model_error}")
                     continue
 
-            print(f"❌ All Bedrock models failed for educational content extraction")
+            logger.error(f"All Bedrock models failed for educational content extraction")
             return {}
 
         except Exception as e:
@@ -374,7 +374,7 @@ Make sure to extract EVERYTHING visible in the image. Be comprehensive and detai
             
             # Resolve file path first
             resolved_path = self._resolve_file_path(file_path)
-            print(f"🖼️ IMAGE Agent processing resolved path: {resolved_path}")
+            logger.info(f"IMAGE Agent processing resolved path: {resolved_path}")
             
             # Open and process regular image files
             with Image.open(resolved_path) as img:
@@ -428,7 +428,7 @@ Make sure to extract EVERYTHING visible in the image. Be comprehensive and detai
                 }
                 
         except Exception as e:
-            print(f"⚠️ Error processing image {file_path}: {e}")
+            logger.error(f"Error processing image {file_path}: {e}")
             return {
                 "metadata": {
                     "dimensions": "unknown",
@@ -505,7 +505,7 @@ Make sure to extract EVERYTHING visible in the image. Be comprehensive and detai
             return dominant_colors
             
         except Exception as e:
-            print(f"⚠️ Error extracting colors: {e}")
+            logger.error(f"Error extracting colors: {e}")
             return []
     
     async def _extract_text_with_ocr(self, file_path: str) -> Optional[OCRResult]:

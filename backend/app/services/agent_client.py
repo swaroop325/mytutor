@@ -836,21 +836,36 @@ class AgentClient:
             # Include processed_results if provided
             if processed_results:
                 payload["processed_results"] = processed_results
-                print(f"🔍 BACKEND: Sending processed_results with keys: {list(processed_results.keys())}")
+                logger.debug(f"🔍 BACKEND: Sending processed_results with keys: {list(processed_results.keys())}")
                 if 'image' in processed_results:
-                    print(f"🔍 BACKEND: Image results has keys: {list(processed_results['image'].keys())}")
+                    logger.debug(f"🔍 BACKEND: Image results has keys: {list(processed_results['image'].keys())}")
             else:
-                print(f"⚠️ BACKEND: No processed_results to send!")
+                logger.warning(f"⚠️ BACKEND: No processed_results to send!")
 
             # Use longer timeout for question generation (Bedrock API can be slow)
             async with httpx.AsyncClient(timeout=90.0) as client:
-                print(f"🔍 BACKEND: Posting to agent with payload keys: {list(payload.keys())}")
+                logger.debug(f"🔍 BACKEND: Posting to agent with payload keys: {list(payload.keys())}")
                 response = await client.post(
                     f"{self.agent_url}/invocations",
                     json=payload
                 )
                 return self._parse_response(response.json())
+        except httpx.ConnectError as e:
+            logger.error(f"❌ BACKEND: Connection error to agent at {self.agent_url}: {e}")
+            return {
+                "status": "error",
+                "message": f"Cannot connect to agent service: {str(e)}"
+            }
+        except httpx.TimeoutException as e:
+            logger.error(f"❌ BACKEND: Timeout error when calling agent: {e}")
+            return {
+                "status": "error",
+                "message": f"Agent request timeout: {str(e)}"
+            }
         except Exception as e:
+            logger.error(f"❌ BACKEND: Unexpected error in generate_enhanced_question: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {
                 "status": "error",
                 "message": f"Failed to generate enhanced question: {str(e)}"

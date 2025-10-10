@@ -5,8 +5,13 @@ Removes files that are no longer associated with any knowledge base.
 """
 import sys
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -39,16 +44,16 @@ def get_active_file_ids():
 
 def cleanup_orphaned_files(dry_run=True):
     """Clean up orphaned files that are not associated with any knowledge base."""
-    print("🧹 Starting orphaned file cleanup...")
+    logger.info("🧹 Starting orphaned file cleanup...")
 
     # Get active file IDs
     active_file_ids = get_active_file_ids()
-    print(f"📊 Found {len(active_file_ids)} files in active knowledge bases")
+    logger.info(f"📊 Found {len(active_file_ids)} files in active knowledge bases")
 
     # Get all registered files
     registry = file_upload_service._file_registry
     total_files = len(registry)
-    print(f"📊 Total registered files: {total_files}")
+    logger.info(f"📊 Total registered files: {total_files}")
 
     # Find orphaned files in registry
     orphaned_files = []
@@ -59,7 +64,7 @@ def cleanup_orphaned_files(dry_run=True):
             orphaned_files.append((file_id, file_info))
             total_size += file_info.file_size
 
-    print(f"🗑️ Found {len(orphaned_files)} orphaned files in registry ({total_size / (1024*1024):.2f} MB)")
+    logger.info(f"🗑️ Found {len(orphaned_files)} orphaned files in registry ({total_size / (1024*1024):.2f} MB)")
 
     # Also check for files on disk not in registry
     uploads_dir = Path("uploads")
@@ -84,39 +89,39 @@ def cleanup_orphaned_files(dry_run=True):
                             unregistered_size += file_size
 
     if unregistered_files:
-        print(f"🗑️ Found {len(unregistered_files)} unregistered files on disk ({unregistered_size / (1024*1024):.2f} MB)")
+        logger.info(f"🗑️ Found {len(unregistered_files)} unregistered files on disk ({unregistered_size / (1024*1024):.2f} MB)")
 
     total_orphaned = len(orphaned_files) + len(unregistered_files)
     total_orphaned_size = total_size + unregistered_size
 
-    print(f"\n📊 Total cleanup: {total_orphaned} files ({total_orphaned_size / (1024*1024):.2f} MB)")
+    logger.info(f"\n📊 Total cleanup: {total_orphaned} files ({total_orphaned_size / (1024*1024):.2f} MB)")
 
     if not orphaned_files and not unregistered_files:
-        print("✅ No orphaned files to clean up")
+        logger.info("✅ No orphaned files to clean up")
         return
 
     # Show orphaned files in registry
     if orphaned_files:
-        print("\nOrphaned files in registry:")
+        logger.info("\nOrphaned files in registry:")
         for file_id, file_info in orphaned_files:
             size_mb = file_info.file_size / (1024*1024)
             created_at = file_info.created_at
-            print(f"  - {file_info.original_filename} ({size_mb:.2f} MB) - {file_info.category.value} - created: {created_at}")
+            logger.info(f"  - {file_info.original_filename} ({size_mb:.2f} MB) - {file_info.category.value} - created: {created_at}")
 
     # Show unregistered files on disk
     if unregistered_files:
-        print("\nUnregistered files on disk:")
+        logger.info("\nUnregistered files on disk:")
         for file_path, file_size in unregistered_files:
             size_mb = file_size / (1024*1024)
-            print(f"  - {file_path.name} ({size_mb:.2f} MB) - {file_path.parent.name}")
+            logger.info(f"  - {file_path.name} ({size_mb:.2f} MB) - {file_path.parent.name}")
 
     if dry_run:
-        print("\n⚠️ DRY RUN MODE - No files will be deleted")
-        print("Run with --execute flag to actually delete files")
+        logger.warning("\n⚠️ DRY RUN MODE - No files will be deleted")
+        logger.info("Run with --execute flag to actually delete files")
         return
 
     # Delete orphaned files
-    print("\n🗑️ Deleting files...")
+    logger.info("\n🗑️ Deleting files...")
     deleted_count = 0
     deleted_size = 0
 
@@ -134,9 +139,9 @@ def cleanup_orphaned_files(dry_run=True):
 
             deleted_count += 1
             deleted_size += file_info.file_size
-            print(f"  ✓ Deleted {file_info.original_filename}")
+            logger.info(f"  ✓ Deleted {file_info.original_filename}")
         except Exception as e:
-            print(f"  ✗ Failed to delete {file_info.original_filename}: {e}")
+            logger.error(f"  ✗ Failed to delete {file_info.original_filename}: {e}")
 
     # Delete unregistered files on disk
     for file_path, file_size in unregistered_files:
@@ -145,16 +150,16 @@ def cleanup_orphaned_files(dry_run=True):
                 file_path.unlink()
                 deleted_count += 1
                 deleted_size += file_size
-                print(f"  ✓ Deleted {file_path.name}")
+                logger.info(f"  ✓ Deleted {file_path.name}")
         except Exception as e:
-            print(f"  ✗ Failed to delete {file_path.name}: {e}")
+            logger.error(f"  ✗ Failed to delete {file_path.name}: {e}")
 
     # Save updated registry
     file_upload_service._save_file_registry()
 
-    print(f"\n✅ Cleanup complete!")
-    print(f"   Deleted: {deleted_count} files ({deleted_size / (1024*1024):.2f} MB)")
-    print(f"   Remaining: {len(file_upload_service._file_registry)} registered files")
+    logger.info(f"\n✅ Cleanup complete!")
+    logger.info(f"   Deleted: {deleted_count} files ({deleted_size / (1024*1024):.2f} MB)")
+    logger.info(f"   Remaining: {len(file_upload_service._file_registry)} registered files")
 
 
 if __name__ == "__main__":

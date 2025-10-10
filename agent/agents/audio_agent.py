@@ -78,33 +78,33 @@ class AudioAgent:
         from pathlib import Path
         
         file_path_obj = Path(file_path)
-        print(f"🔍 AUDIO Agent - Resolving file path: {file_path_obj}")
+        logger.debug(f"AUDIO Agent - Resolving file path: {file_path_obj}")
         
         # If the path exists as-is, use it
         if file_path_obj.exists():
-            print(f"✅ AUDIO Agent - Found file at original path: {file_path_obj}")
+            logger.info(f"AUDIO Agent - Found file at original path: {file_path_obj}")
             return str(file_path_obj)
         
         # Try in backend directory (most common case)
         backend_path = Path("backend") / file_path_obj
         if backend_path.exists():
-            print(f"✅ AUDIO Agent - Found file at backend path: {backend_path}")
+            logger.info(f"AUDIO Agent - Found file at backend path: {backend_path}")
             return str(backend_path)
         
         # Try relative to backend directory (from agent directory)
         backend_relative_path = Path("../backend") / file_path_obj
         if backend_relative_path.exists():
-            print(f"✅ AUDIO Agent - Found file at backend relative path: {backend_relative_path}")
+            logger.info(f"AUDIO Agent - Found file at backend relative path: {backend_relative_path}")
             return str(backend_relative_path)
         
         # Return original path if nothing works
-        print(f"❌ AUDIO Agent - Could not resolve file path, using original: {file_path_obj}")
+        logger.error(f"AUDIO Agent - Could not resolve file path, using original: {file_path_obj}")
         return file_path
     
     async def process_file(self, file_path: str, user_id: str) -> Dict[str, Any]:
         """Process an audio file with enhanced transcription and analysis."""
         try:
-            print(f"🎵 AUDIO Agent processing: {file_path}")
+            logger.info(f"AUDIO Agent processing: {file_path}")
 
             # Resolve file path
             resolved_path = self._resolve_file_path(file_path)
@@ -153,12 +153,12 @@ class AudioAgent:
                 }
             }
             
-            print(f"✅ AUDIO Agent completed: {file_path} ({audio_analysis.duration:.1f}s, {len(audio_analysis.speakers)} speakers, {len(audio_analysis.topics)} topics)")
+            logger.info(f"AUDIO Agent completed: {file_path} ({audio_analysis.duration:.1f}s, {len(audio_analysis.speakers)} speakers, {len(audio_analysis.topics)} topics)")
             return result
             
         except Exception as e:
             logger.error(f"Audio Agent error processing {file_path}: {e}")
-            print(f"❌ AUDIO Agent error processing {file_path}: {e}")
+            logger.error(f"AUDIO Agent error processing {file_path}: {e}")
             return {
                 "agent_type": "audio",
                 "file_path": file_path,
@@ -171,32 +171,32 @@ class AudioAgent:
         try:
             # Resolve file path first
             resolved_path = self._resolve_file_path(file_path)
-            print(f"🎵 AUDIO Agent processing resolved path: {resolved_path}")
+            logger.info(f"AUDIO Agent processing resolved path: {resolved_path}")
             
             # Get audio metadata
             metadata = await self._get_audio_metadata(resolved_path)
             duration = metadata.get('duration', 0)
             
             # Primary: Use Bedrock audio models (context-aware, educational focus)
-            print(f"🤖 Starting transcription with Bedrock audio models...")
+            logger.info(f"🤖 Starting transcription with Bedrock audio models...")
             transcription_result = await self._transcribe_with_bedrock_audio(resolved_path)
             
             if not transcription_result or not transcription_result.get('text'):
-                print(f"⚠️ Bedrock audio failed, trying local Whisper...")
+                logger.error(f"Bedrock audio failed, trying local Whisper...")
                 # Fallback to local Whisper (fast, offline, free)
                 transcription_result = await self._transcribe_with_local_whisper(resolved_path)
                 
                 if not transcription_result or not transcription_result.get('text'):
-                    print(f"❌ Both Bedrock and Whisper failed - no transcription available")
+                    logger.error(f"Both Bedrock and Whisper failed - no transcription available")
                     # Return minimal result structure
                     transcription_result = {
                         "text": "Transcription failed - audio processing not available",
                         "segments": []
                     }
                 else:
-                    print(f"✅ Local Whisper transcription successful!")
+                    logger.info(f"Local Whisper transcription successful!")
             else:
-                print(f"✅ Bedrock audio transcription successful!")
+                logger.info(f"Bedrock audio transcription successful!")
             
             # Extract segments with timestamps
             segments = self._create_transcription_segments(transcription_result)
@@ -260,7 +260,7 @@ class AudioAgent:
                     "file_type": Path(file_path).suffix.lower()
                 }
         except Exception as e:
-            print(f"⚠️ ffprobe not available or failed: {e}")
+            logger.error(f"ffprobe not available or failed: {e}")
         
         # Fallback to basic file info
         return {
@@ -281,7 +281,7 @@ class AudioAgent:
             if not hasattr(self, 'whisper_model'):
                 # Use 'base' model for good balance, 'small' for faster processing
                 model_size = os.getenv('WHISPER_MODEL_SIZE', 'base')  # base, small, medium, large
-                print(f"🎵 Loading Whisper model: {model_size}")
+                logger.info(f"Loading Whisper model: {model_size}")
 
                 # Try loading model with normal SSL verification first
                 try:
@@ -290,7 +290,7 @@ class AudioAgent:
                 except Exception as ssl_error:
                     # Check if it's an SSL certificate error
                     if "CERTIFICATE_VERIFY_FAILED" in str(ssl_error) or "SSL" in str(ssl_error):
-                        print(f"⚠️ SSL certificate verification failed, retrying with SSL bypass...")
+                        logger.error(f"SSL certificate verification failed, retrying with SSL bypass...")
                         logger.warning(f"SSL certificate error detected, attempting to bypass SSL verification: {ssl_error}")
 
                         # Temporarily disable SSL verification for Whisper model download
@@ -315,7 +315,7 @@ class AudioAgent:
                             try:
                                 # Retry model loading with SSL verification disabled
                                 self.whisper_model = whisper.load_model(model_size)
-                                print(f"✅ Loaded Whisper model with SSL bypass")
+                                logger.info(f"Loaded Whisper model with SSL bypass")
                                 logger.info(f"Loaded local Whisper model with SSL verification bypassed: {model_size}")
                             finally:
                                 # Restore original urlopen
@@ -327,7 +327,7 @@ class AudioAgent:
                         # Not an SSL error, re-raise it
                         raise
 
-            print(f"🎵 Transcribing with local Whisper: {file_path}")
+            logger.info(f"Transcribing with local Whisper: {file_path}")
 
             # Transcribe with optimized settings for speed
             result = self.whisper_model.transcribe(
@@ -340,31 +340,31 @@ class AudioAgent:
                 fp16=True         # Use half precision for speed (if supported)
             )
 
-            print(f"✅ Local Whisper transcription completed: {len(result.get('text', ''))} chars")
+            logger.info(f"Local Whisper transcription completed: {len(result.get('text', ''))} chars")
             logger.info(f"Local Whisper transcription completed for {file_path}")
             return result
 
         except ImportError:
-            print("⚠️ OpenAI Whisper not available, will try AWS Transcribe")
+            logger.warning("OpenAI Whisper not available, will try AWS Transcribe")
             logger.info("OpenAI Whisper not available, will try AWS Transcribe")
             return None
         except Exception as e:
-            print(f"❌ Local Whisper transcription failed: {e}")
+            logger.error(f"Local Whisper transcription failed: {e}")
             logger.error(f"Local Whisper transcription failed for {file_path}: {e}")
             return None
     
     async def _transcribe_with_bedrock_audio(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Transcribe audio using Bedrock audio models (context-aware, integrated)."""
         try:
-            print(f"🤖 Transcribing with Bedrock audio models...")
+            logger.info(f"🤖 Transcribing with Bedrock audio models...")
             
             # Check file size and duration first (Bedrock has limits)
             file_size = os.path.getsize(file_path)
             max_size = 25 * 1024 * 1024  # 25MB in bytes
             
             if file_size > max_size:
-                print(f"⚠️ Audio file too large for Bedrock ({file_size / 1024 / 1024:.1f}MB > 25MB)")
-                print(f"🔄 Falling back to Whisper for large file...")
+                logger.warning(f"Audio file too large for Bedrock ({file_size / 1024 / 1024:.1f}MB > 25MB)")
+                logger.info(f"Falling back to Whisper for large file...")
                 return None  # This will trigger Whisper fallback
             
             # Also check duration if we have metadata
@@ -372,8 +372,8 @@ class AudioAgent:
                 metadata = await self._get_audio_metadata(file_path)
                 duration = metadata.get('duration', 0)
                 if duration > 600:  # 10 minutes - practical limit for good results
-                    print(f"⚠️ Audio too long for Bedrock ({duration:.1f}s > 600s)")
-                    print(f"🔄 Falling back to Whisper for long audio...")
+                    logger.warning(f"Audio too long for Bedrock ({duration:.1f}s > 600s)")
+                    logger.info(f"Falling back to Whisper for long audio...")
                     return None
             except Exception:
                 # If we can't get metadata, continue with file size check only
@@ -488,7 +488,7 @@ Format the response as JSON:
                 }
             
         except Exception as e:
-            print(f"❌ Bedrock audio transcription failed: {e}")
+            logger.error(f"Bedrock audio transcription failed: {e}")
             logger.error(f"Bedrock audio transcription failed for {file_path}: {e}")
             return None
     
@@ -794,11 +794,11 @@ Respond in JSON format:
             if result.returncode == 0:
                 return temp_wav_path
             else:
-                print(f"⚠️ ffmpeg conversion failed: {result.stderr.decode()}")
+                logger.error(f"ffmpeg conversion failed: {result.stderr.decode()}")
                 return file_path
                 
         except Exception as e:
-            print(f"⚠️ Audio conversion failed: {e}")
+            logger.error(f"Audio conversion failed: {e}")
             return file_path
     
     async def _transcribe_audio(self, file_path: str) -> str:
@@ -827,7 +827,7 @@ Respond in JSON format:
                         return f"Speech recognition service error: {str(e)}"
                         
         except Exception as e:
-            print(f"⚠️ Transcription failed: {e}")
+            logger.error(f"Transcription failed: {e}")
             return f"Transcription failed: {str(e)}"
     
 

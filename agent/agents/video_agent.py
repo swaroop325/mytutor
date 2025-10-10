@@ -52,37 +52,37 @@ class VideoAgent:
     
     def _resolve_file_path(self, file_path: Path) -> Path:
         """Resolve file path relative to project structure."""
-        print(f"🔍 Video Agent - Resolving file path: {file_path}")
-        print(f"🔍 Video Agent - Current working directory: {Path.cwd()}")
+        logger.debug(f"Video Agent - Resolving file path: {file_path}")
+        logger.debug(f"Video Agent - Current working directory: {Path.cwd()}")
         
         # If the path exists as-is, use it
         if file_path.exists():
-            print(f"✅ Video Agent - Found file at original path: {file_path}")
+            logger.info(f"Video Agent - Found file at original path: {file_path}")
             return file_path
         
         # Try in backend directory (most common case)
         backend_path = Path("backend") / file_path
-        print(f"🔍 Video Agent - Trying backend path: {backend_path}")
+        logger.debug(f"Video Agent - Trying backend path: {backend_path}")
         if backend_path.exists():
-            print(f"✅ Video Agent - Found file at backend path: {backend_path}")
+            logger.info(f"Video Agent - Found file at backend path: {backend_path}")
             return backend_path
         
         # Try relative to backend directory (from agent directory)
         backend_relative_path = Path("../backend") / file_path
-        print(f"🔍 Video Agent - Trying backend relative path: {backend_relative_path}")
+        logger.debug(f"Video Agent - Trying backend relative path: {backend_relative_path}")
         if backend_relative_path.exists():
-            print(f"✅ Video Agent - Found file at backend relative path: {backend_relative_path}")
+            logger.info(f"Video Agent - Found file at backend relative path: {backend_relative_path}")
             return backend_relative_path
         
         # Try absolute path from project root
         project_root_path = Path("..") / file_path
-        print(f"🔍 Video Agent - Trying project root path: {project_root_path}")
+        logger.debug(f"Video Agent - Trying project root path: {project_root_path}")
         if project_root_path.exists():
-            print(f"✅ Video Agent - Found file at project root path: {project_root_path}")
+            logger.info(f"Video Agent - Found file at project root path: {project_root_path}")
             return project_root_path
         
         # Return original path if nothing works
-        print(f"❌ Video Agent - Could not resolve file path, using original: {file_path}")
+        logger.error(f"Video Agent - Could not resolve file path, using original: {file_path}")
         return file_path
     
     def can_process(self, file_path: str) -> bool:
@@ -92,17 +92,17 @@ class VideoAgent:
     async def process_file(self, file_path: str, user_id: str) -> Dict[str, Any]:
         """Process a video file."""
         try:
-            print(f"🎬 VIDEO Agent processing: {file_path}")
+            logger.info(f"VIDEO Agent processing: {file_path}")
             logger.info(f"Starting video processing for: {file_path}")
 
             # Resolve file path first (handles relative paths from different working directories)
             resolved_path = self._resolve_file_path(Path(file_path))
-            print(f"🔍 Resolved video path: {resolved_path}")
+            logger.debug(f"Resolved video path: {resolved_path}")
 
             # Check if file exists at resolved path
             if not resolved_path.exists():
                 error_msg = f"Video file not found: {file_path} (resolved: {resolved_path})"
-                print(f"❌ {error_msg}")
+                logger.error(f"{error_msg}")
                 logger.error(error_msg)
                 return {
                     "agent_type": "video",
@@ -113,18 +113,18 @@ class VideoAgent:
 
             # Use resolved path string for the rest of processing
             resolved_path_str = str(resolved_path)
-            print(f"✅ Video file exists: {resolved_path_str} ({resolved_path.stat().st_size} bytes)")
+            logger.info(f"Video file exists: {resolved_path_str} ({resolved_path.stat().st_size} bytes)")
 
             # Extract video metadata and frames
-            print("🔍 Starting video content extraction...")
+            logger.debug("Starting video content extraction...")
             video_data = await self._extract_video_content(resolved_path_str)
-            print("✅ Video content extraction completed")
+            logger.info("Video content extraction completed")
             logger.info("Video content extraction completed")
             
             # Analyze content with AI (using frames)
-            print("🔍 Starting AI content analysis...")
+            logger.debug("Starting AI content analysis...")
             analysis = await self._analyze_content(video_data, file_path)
-            print("✅ AI content analysis completed")
+            logger.info("AI content analysis completed")
             
             # Prepare result
             result = {
@@ -146,12 +146,12 @@ class VideoAgent:
                 }
             }
             
-            print(f"✅ VIDEO Agent completed: {file_path} ({video_data['metadata']['duration']:.1f}s)")
+            logger.info(f"VIDEO Agent completed: {file_path} ({video_data['metadata']['duration']:.1f}s)")
             return result
             
         except Exception as e:
             logger.error(f"VIDEO Agent error processing {file_path}: {e}", exc_info=True)
-            print(f"❌ VIDEO Agent error processing {file_path}: {e}")
+            logger.error(f"VIDEO Agent error processing {file_path}: {e}")
             return {
                 "agent_type": "video",
                 "file_path": file_path,
@@ -164,7 +164,7 @@ class VideoAgent:
         try:
             # Resolve the file path
             resolved_path = self._resolve_file_path(Path(file_path))
-            print(f"🎬 Video agent processing: {resolved_path}")
+            logger.info(f"Video agent processing: {resolved_path}")
             
             if not resolved_path.exists():
                 raise FileNotFoundError(f"Video file not found: {resolved_path}")
@@ -194,42 +194,42 @@ class VideoAgent:
             }
             
             # Extract intelligent keyframes using scene change detection
-            print("🔍 Extracting keyframes...")
+            logger.debug("Extracting keyframes...")
             keyframes = await self._extract_intelligent_keyframes(cap, fps, frame_count, width, height)
-            print(f"✅ Extracted {len(keyframes)} keyframes")
+            logger.info(f"Extracted {len(keyframes)} keyframes")
             
             # Detect slides and presentations in keyframes
-            print("🔍 Analyzing slides and presentations...")
+            logger.debug("Analyzing slides and presentations...")
             slide_analysis = await self._detect_slides_and_presentations(keyframes)
-            print("✅ Slide analysis completed")
+            logger.info("Slide analysis completed")
             
             # Extract text from frames using OCR
-            print("🔍 Extracting text from frames...")
+            logger.debug("Extracting text from frames...")
             ocr_results = await self._extract_text_from_frames(keyframes)
-            print(f"✅ OCR completed for {len(ocr_results)} frames")
+            logger.info(f"OCR completed for {len(ocr_results)} frames")
             
             # Extract and analyze audio content (with timeout protection)
-            print("🔍 Extracting and analyzing audio...")
+            logger.debug("Extracting and analyzing audio...")
             try:
                 # Set a reasonable timeout for audio processing
                 audio_analysis = await asyncio.wait_for(
                     self._extract_and_analyze_audio(resolved_path, duration),
                     timeout=200  # 3 minutes max for audio processing
                 )
-                print(f"✅ Audio analysis completed (extracted: {audio_analysis.get('audio_extracted', False)})")
+                logger.info(f"Audio analysis completed (extracted: {audio_analysis.get('audio_extracted', False)})")
             except asyncio.TimeoutError:
-                print("⚠️ Audio processing timed out - continuing with video-only processing")
+                logger.warning("Audio processing timed out - continuing with video-only processing")
                 audio_analysis = self._create_empty_audio_analysis()
             except Exception as e:
-                print(f"⚠️ Audio processing failed: {e} - continuing with video-only processing")
+                logger.error(f"Audio processing failed: {e} - continuing with video-only processing")
                 audio_analysis = self._create_empty_audio_analysis()
             
             # Create timeline correlation between visual and audio content
-            print("🔍 Creating timeline correlation...")
+            logger.debug("Creating timeline correlation...")
             timeline_correlation = await self._create_timeline_correlation(
                 keyframes, ocr_results, audio_analysis, duration
             )
-            print("✅ Timeline correlation completed")
+            logger.info("Timeline correlation completed")
             
             cap.release()
             
@@ -245,7 +245,7 @@ class VideoAgent:
             
         except Exception as e:
             logger.error(f"Error processing video {file_path}: {e}", exc_info=True)
-            print(f"❌ Video content extraction failed: {e}")
+            logger.error(f"Video content extraction failed: {e}")
             return {
                 "metadata": {
                     "duration": 0,
@@ -942,11 +942,11 @@ Provide basic analysis of video characteristics and potential educational value.
                     raise FileNotFoundError("FFmpeg not working properly")
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 logger.info("FFmpeg not available, skipping audio extraction for video")
-                print("ℹ️ FFmpeg not available - video will be processed without audio transcription")
-                print("💡 To enable audio processing from videos, install FFmpeg:")
-                print("   macOS: brew install ffmpeg")
-                print("   Ubuntu: sudo apt install ffmpeg")
-                print("   Windows: Download from https://ffmpeg.org/download.html")
+                logger.info("ℹ️ FFmpeg not available - video will be processed without audio transcription")
+                logger.info("💡 To enable audio processing from videos, install FFmpeg:")
+                logger.info("   macOS: brew install ffmpeg")
+                logger.info("   Ubuntu: sudo apt install ffmpeg")
+                logger.info("   Windows: Download from https://ffmpeg.org/download.html")
                 return self._create_empty_audio_analysis()
             
             # Extract audio from video using ffmpeg
@@ -986,7 +986,7 @@ Provide basic analysis of video characteristics and potential educational value.
                 return self._create_empty_audio_analysis()
             except FileNotFoundError:
                 logger.info("FFmpeg not found, continuing video processing without audio extraction")
-                print("ℹ️ FFmpeg not available - video will be processed without audio transcription")
+                logger.info("ℹ️ FFmpeg not available - video will be processed without audio transcription")
                 return self._create_empty_audio_analysis()
             except Exception as e:
                 logger.warning(f"Audio extraction failed: {e}")
@@ -1029,11 +1029,11 @@ Provide basic analysis of video characteristics and potential educational value.
             if not hasattr(self, 'whisper_model'):
                 # Use 'base' model for good balance, 'small' for faster processing
                 model_size = os.getenv('WHISPER_MODEL_SIZE', 'base')  # base, small, medium, large
-                print(f"🎵 Loading Whisper model for video: {model_size}")
+                logger.info(f"Loading Whisper model for video: {model_size}")
                 self.whisper_model = whisper.load_model(model_size)
                 logger.info(f"Loaded local Whisper model for video: {model_size}")
             
-            print(f"🎵 Transcribing video audio with local Whisper: {audio_path}")
+            logger.info(f"Transcribing video audio with local Whisper: {audio_path}")
             
             # Transcribe with optimized settings for speed
             result = self.whisper_model.transcribe(
@@ -1059,7 +1059,7 @@ Provide basic analysis of video characteristics and potential educational value.
                     'confidence': max(0.0, min(1.0, segment.get('avg_logprob', -1.0) + 1.0))  # Convert log prob to confidence
                 })
             
-            print(f"✅ Local Whisper video transcription completed: {len(transcript_text)} chars, {len(segments)} segments")
+            logger.info(f"Local Whisper video transcription completed: {len(transcript_text)} chars, {len(segments)} segments")
             logger.info(f"Local Whisper video transcription completed for {audio_path}")
             
             return {
@@ -1070,27 +1070,27 @@ Provide basic analysis of video characteristics and potential educational value.
             }
             
         except ImportError:
-            print("⚠️ OpenAI Whisper not available for video transcription")
+            logger.warning("OpenAI Whisper not available for video transcription")
             logger.info("OpenAI Whisper not available for video transcription")
             return None
         except Exception as e:
-            print(f"❌ Local Whisper video transcription failed: {e}")
+            logger.error(f"Local Whisper video transcription failed: {e}")
             logger.error(f"Local Whisper video transcription failed for {audio_path}: {e}")
             return None
     
     async def _transcribe_with_bedrock_audio(self, audio_path: str, duration: float) -> Optional[Dict[str, Any]]:
         """Transcribe video audio using Bedrock audio models (context-aware, integrated)."""
         try:
-            print(f"🤖 Transcribing video audio with Bedrock audio models...")
+            logger.info(f"🤖 Transcribing video audio with Bedrock audio models...")
             
             # Check file size and duration - Bedrock has limits
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024) if os.path.exists(audio_path) else 0
             if file_size_mb > 25:  # Bedrock audio limit is typically around 25MB
-                print(f"⚠️ Audio file too large for Bedrock ({file_size_mb:.1f}MB > 25MB)")
+                logger.warning(f"Audio file too large for Bedrock ({file_size_mb:.1f}MB > 25MB)")
                 return None
             
             if duration > 600:  # 10 minutes - practical limit for good results
-                print(f"⚠️ Audio too long for Bedrock ({duration:.1f}s > 600s)")
+                logger.warning(f"Audio too long for Bedrock ({duration:.1f}s > 600s)")
                 return None
             
             # Read audio file and encode to base64
@@ -1186,7 +1186,7 @@ Format the response as JSON:
                                 'confidence': parsed_result.get('confidence', 0.9)
                             })
                 
-                print(f"✅ Bedrock video audio transcription completed: {len(transcript_text)} chars, {len(segments)} segments")
+                logger.info(f"Bedrock video audio transcription completed: {len(transcript_text)} chars, {len(segments)} segments")
                 
                 return {
                     'transcript': transcript_text,
@@ -1216,7 +1216,7 @@ Format the response as JSON:
                 }
             
         except Exception as e:
-            print(f"❌ Bedrock video audio transcription failed: {e}")
+            logger.error(f"Bedrock video audio transcription failed: {e}")
             logger.error(f"Bedrock video audio transcription failed for {audio_path}: {e}")
             return None
     
@@ -1224,23 +1224,23 @@ Format the response as JSON:
         """Transcribe audio using Bedrock audio models (context-aware) with local Whisper fallback."""
         try:
             # Primary: Use Bedrock audio models (context-aware, educational focus)
-            print(f"🤖 Transcribing video audio with Bedrock audio models...")
+            logger.info(f"🤖 Transcribing video audio with Bedrock audio models...")
             bedrock_result = await self._transcribe_with_bedrock_audio(audio_path, duration)
             
             if bedrock_result and bedrock_result.get('transcript'):
-                print(f"✅ Bedrock audio transcription successful for video!")
+                logger.info(f"Bedrock audio transcription successful for video!")
                 return bedrock_result
             
-            print(f"⚠️ Bedrock audio failed, trying local Whisper...")
+            logger.error(f"Bedrock audio failed, trying local Whisper...")
             
             # Fallback: Local Whisper (fast, offline, free)
             whisper_result = await self._transcribe_with_local_whisper(audio_path, duration)
             
             if whisper_result and whisper_result.get('transcript'):
-                print(f"✅ Local Whisper transcription successful for video audio!")
+                logger.info(f"Local Whisper transcription successful for video audio!")
                 return whisper_result
             
-            print(f"❌ Both Bedrock and Whisper failed for video - no transcription available")
+            logger.error(f"Both Bedrock and Whisper failed for video - no transcription available")
             
             # Return empty result structure
             return {"transcript": "", "segments": [], "confidence": 0.0}

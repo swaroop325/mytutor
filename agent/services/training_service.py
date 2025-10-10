@@ -23,7 +23,7 @@ class TrainingService:
                                               training_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate training content from knowledge base content."""
         try:
-            print(f"🎓 Generating training content for KB: {kb_id}")
+            logger.info(f"Generating training content for KB: {kb_id}")
             
             # Extract content from different agent results
             combined_content = self._extract_content_from_kb_data(content_data)
@@ -52,7 +52,7 @@ class TrainingService:
             # Export to dictionary format
             training_content = self.training_agent.export_assessment_to_dict(assessment)
             
-            print(f"✅ Generated training content with {assessment.total_questions} questions")
+            logger.info(f"Generated training content with {assessment.total_questions} questions")
             
             return {
                 "status": "success",
@@ -247,7 +247,7 @@ class TrainingService:
     async def get_learning_content_from_kb(self, kb_id: str, content_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract learning content summary from knowledge base for pre-study phase."""
         try:
-            print(f"📚 Extracting learning content for KB: {kb_id}")
+            logger.info(f"Extracting learning content for KB: {kb_id}")
 
             # Extract content from different agent results
             combined_content = self._extract_content_from_kb_data(content_data)
@@ -261,16 +261,16 @@ class TrainingService:
             # Use training agent to analyze and extract learning content
             # Smart content management: use chunking for long content to preserve quality
             content_length = len(combined_content)
-            print(f"📚 Content length: {content_length:,} characters")
+            logger.info(f"Content length: {content_length:,} characters")
 
             if content_length > 20000:  # Use chunking for anything > 20K chars
-                print(f"📚 Content is long ({content_length:,} chars), using intelligent chunking to preserve quality...")
+                logger.info(f"Content is long ({content_length:,} chars), using intelligent chunking to preserve quality...")
                 learning_content = await self.training_agent.extract_learning_content_chunked(combined_content)
             else:
-                print(f"📚 Content is manageable ({content_length:,} chars), using direct extraction...")
+                logger.info(f"Content is manageable ({content_length:,} chars), using direct extraction...")
                 learning_content = await self.training_agent.extract_learning_content(combined_content)
 
-            print(f"✅ Extracted learning content with {len(learning_content.get('key_concepts', []))} key concepts")
+            logger.info(f"Extracted learning content with {len(learning_content.get('key_concepts', []))} key concepts")
 
             return {
                 "status": "completed",

@@ -4,8 +4,12 @@ Routes files to appropriate agents and manages processing
 """
 import os
 import asyncio
+import logging
 from typing import Dict, Any, List, Optional
 from pathlib import Path
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 from .text_agent import text_agent
 from .pdf_agent import pdf_agent
@@ -50,7 +54,7 @@ class AgentManager:
                 return "text"
         
         # Default fallback
-        print(f"⚠️ No specific agent found for {file_path}, defaulting to text agent")
+        logger.warning(f"No specific agent found for {file_path}, defaulting to text agent")
         return "text"
     
     async def process_file(self, file_path: str, user_id: str, agent_type: Optional[str] = None) -> Dict[str, Any]:
@@ -67,13 +71,13 @@ class AgentManager:
             agent = self.agents[agent_type]
             
             # Process the file
-            print(f"🤖 Routing {file_path} to {agent_type.upper()} agent")
+            logger.info(f"🤖 Routing {file_path} to {agent_type.upper()} agent")
             result = await agent.process_file(file_path, user_id)
             
             return result
             
         except Exception as e:
-            print(f"❌ Agent Manager error processing {file_path}: {e}")
+            logger.error(f"Agent Manager error processing {file_path}: {e}")
             return {
                 "agent_type": agent_type or "unknown",
                 "file_path": file_path,
@@ -84,7 +88,7 @@ class AgentManager:
     async def process_files_batch(self, file_paths: List[str], user_id: str) -> Dict[str, List[Dict[str, Any]]]:
         """Process multiple files with appropriate agents in parallel."""
         try:
-            print(f"🚀 Processing {len(file_paths)} files with specialized agents")
+            logger.info(f"Processing {len(file_paths)} files with specialized agents")
             
             # Group files by agent type
             agent_groups = {}
@@ -94,7 +98,7 @@ class AgentManager:
                     agent_groups[agent_type] = []
                 agent_groups[agent_type].append(file_path)
             
-            print(f"📊 Agent distribution: {dict((k, len(v)) for k, v in agent_groups.items())}")
+            logger.info(f"Agent distribution: {dict((k, len(v)) for k, v in agent_groups.items())}")
             
             # Process each group in parallel
             all_tasks = []
@@ -134,12 +138,12 @@ class AgentManager:
                 for results in agent_results.values()
             )
             
-            print(f"✅ Batch processing complete: {total_success} successful, {total_errors} errors")
+            logger.info(f"Batch processing complete: {total_success} successful, {total_errors} errors")
             
             return agent_results
             
         except Exception as e:
-            print(f"❌ Batch processing error: {e}")
+            logger.error(f"Batch processing error: {e}")
             return {"error": [{"status": "error", "error": str(e)}]}
     
     def get_agent_capabilities(self) -> Dict[str, Dict[str, Any]]:

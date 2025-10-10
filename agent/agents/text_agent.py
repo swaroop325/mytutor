@@ -5,6 +5,7 @@ Enhanced with advanced structure analysis and key concept extraction
 """
 import os
 import json
+import logging
 import re
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
@@ -12,6 +13,9 @@ from dataclasses import dataclass, asdict
 import docx
 from pptx import Presentation
 import boto3
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 try:
     from ..config.model_manager import model_config_manager
@@ -71,33 +75,33 @@ class TextAgent:
         from pathlib import Path
         
         file_path_obj = Path(file_path)
-        print(f"🔍 TEXT Agent - Resolving file path: {file_path_obj}")
+        logger.debug(f"TEXT Agent - Resolving file path: {file_path_obj}")
         
         # If the path exists as-is, use it
         if file_path_obj.exists():
-            print(f"✅ TEXT Agent - Found file at original path: {file_path_obj}")
+            logger.info(f"TEXT Agent - Found file at original path: {file_path_obj}")
             return str(file_path_obj)
         
         # Try in backend directory (most common case)
         backend_path = Path("backend") / file_path_obj
         if backend_path.exists():
-            print(f"✅ TEXT Agent - Found file at backend path: {backend_path}")
+            logger.info(f"TEXT Agent - Found file at backend path: {backend_path}")
             return str(backend_path)
         
         # Try relative to backend directory (from agent directory)
         backend_relative_path = Path("../backend") / file_path_obj
         if backend_relative_path.exists():
-            print(f"✅ TEXT Agent - Found file at backend relative path: {backend_relative_path}")
+            logger.info(f"TEXT Agent - Found file at backend relative path: {backend_relative_path}")
             return str(backend_relative_path)
         
         # Return original path if nothing works
-        print(f"❌ TEXT Agent - Could not resolve file path, using original: {file_path_obj}")
+        logger.error(f"TEXT Agent - Could not resolve file path, using original: {file_path_obj}")
         return file_path
     
     async def process_file(self, file_path: str, user_id: str) -> Dict[str, Any]:
         """Process a text document file with enhanced extraction."""
         try:
-            print(f"📄 Enhanced TEXT Agent processing: {file_path}")
+            logger.info(f"Enhanced TEXT Agent processing: {file_path}")
 
             # Resolve file path
             resolved_path = self._resolve_file_path(file_path)
@@ -133,11 +137,11 @@ class TextAgent:
                 }
             }
             
-            print(f"✅ Enhanced TEXT Agent completed: {file_path}")
+            logger.info(f"Enhanced TEXT Agent completed: {file_path}")
             return result
             
         except Exception as e:
-            print(f"❌ Enhanced TEXT Agent error processing {file_path}: {e}")
+            logger.error(f"Enhanced TEXT Agent error processing {file_path}: {e}")
             # Try fallback processing
             fallback_result = await self._fallback_processing(file_path, str(e))
             return fallback_result
@@ -158,7 +162,7 @@ class TextAgent:
                 return await self._extract_txt_structure(file_path)
                 
         except Exception as e:
-            print(f"⚠️ Error extracting structured content from {file_path}: {e}")
+            logger.error(f"Error extracting structured content from {file_path}: {e}")
             return {
                 "raw_text": f"Error extracting content: {str(e)}",
                 "structure": TextStructure([], [], [], [], {}),
@@ -171,7 +175,7 @@ class TextAgent:
         try:
             # Resolve file path first
             resolved_path = self._resolve_file_path(file_path)
-            print(f"📝 TEXT Agent processing resolved path: {resolved_path}")
+            logger.info(f"TEXT Agent processing resolved path: {resolved_path}")
             
             with open(resolved_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -473,7 +477,7 @@ class TextAgent:
             )
             
         except Exception as e:
-            print(f"⚠️ Error in enhanced analysis: {e}")
+            logger.error(f"Error in enhanced analysis: {e}")
             # Try fallback analysis
             return await self._fallback_analysis(structured_content, file_path, str(e))
     
@@ -531,11 +535,11 @@ Extract 5-10 most important concepts. Focus on educational or technical terms th
                 return key_concepts
                 
             except json.JSONDecodeError:
-                print("⚠️ Failed to parse key concepts JSON, using fallback extraction")
+                logger.error("Failed to parse key concepts JSON, using fallback extraction")
                 return self._fallback_concept_extraction(text)
             
         except Exception as e:
-            print(f"⚠️ Error extracting key concepts: {e}")
+            logger.error(f"Error extracting key concepts: {e}")
             return self._fallback_concept_extraction(text)
     
     async def _generate_educational_metadata(self, text: str, structure, model_spec) -> Dict[str, Any]:
@@ -586,11 +590,11 @@ Focus on educational value and learning outcomes. Be specific and actionable.
                 return self._validate_educational_metadata(metadata)
                 
             except json.JSONDecodeError:
-                print("⚠️ Failed to parse educational metadata JSON")
+                logger.error("Failed to parse educational metadata JSON")
                 return self._generate_fallback_metadata(text)
             
         except Exception as e:
-            print(f"⚠️ Error generating educational metadata: {e}")
+            logger.error(f"Error generating educational metadata: {e}")
             return self._generate_fallback_metadata(text)
     
     def _calculate_confidence_scores(self, text: str, key_concepts: List[KeyConcept], 
@@ -644,11 +648,11 @@ Focus on educational value and learning outcomes. Be specific and actionable.
             return result['content'][0]['text']
             
         except Exception as e:
-            print(f"⚠️ Model invocation failed: {e}")
+            logger.error(f"Model invocation failed: {e}")
             # Try fallback model
             fallback_model = self.model_manager.get_fallback_model("text", model_spec.model_id)
             if fallback_model and fallback_model.model_id != model_spec.model_id:
-                print(f"🔄 Trying fallback model: {fallback_model.model_id}")
+                logger.info(f"Trying fallback model: {fallback_model.model_id}")
                 return await self._invoke_model(fallback_model, prompt, max_tokens)
             else:
                 raise e
@@ -809,7 +813,7 @@ Focus on educational value and learning outcomes. Be specific and actionable.
             )
             
         except Exception as e:
-            print(f"⚠️ Fallback analysis also failed: {e}")
+            logger.error(f"Fallback analysis also failed: {e}")
             return None
 
     def _create_smart_preview(self, content: str, max_length: int = 8000) -> str:

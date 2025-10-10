@@ -84,7 +84,7 @@ Course Content:
                 )
 
         except Exception as e:
-            print(f"Error analyzing course content: {e}")
+            logger.error(f"Error analyzing course content: {e}")
             raise
 
     async def build_knowledge_base(

@@ -63,43 +63,43 @@ class PDFAgent:
         # Convert to Path if string
         file_path_obj = Path(file_path) if isinstance(file_path, str) else file_path
 
-        print(f"🔍 PDF Agent - Resolving file path: {file_path_obj}")
-        print(f"🔍 PDF Agent - Current working directory: {Path.cwd()}")
+        logger.debug(f"PDF Agent - Resolving file path: {file_path_obj}")
+        logger.debug(f"PDF Agent - Current working directory: {Path.cwd()}")
 
         # If the path exists as-is, use it
         if file_path_obj.exists():
-            print(f"✅ PDF Agent - Found file at original path: {file_path_obj}")
+            logger.info(f"PDF Agent - Found file at original path: {file_path_obj}")
             return str(file_path_obj)
 
         # Try in backend directory (most common case)
         backend_path = Path("backend") / file_path_obj
-        print(f"🔍 PDF Agent - Trying backend path: {backend_path}")
+        logger.debug(f"PDF Agent - Trying backend path: {backend_path}")
         if backend_path.exists():
-            print(f"✅ PDF Agent - Found file at backend path: {backend_path}")
+            logger.info(f"PDF Agent - Found file at backend path: {backend_path}")
             return str(backend_path)
 
         # Try relative to backend directory (from agent directory)
         backend_relative_path = Path("../backend") / file_path_obj
-        print(f"🔍 PDF Agent - Trying backend relative path: {backend_relative_path}")
+        logger.debug(f"PDF Agent - Trying backend relative path: {backend_relative_path}")
         if backend_relative_path.exists():
-            print(f"✅ PDF Agent - Found file at backend relative path: {backend_relative_path}")
+            logger.info(f"PDF Agent - Found file at backend relative path: {backend_relative_path}")
             return str(backend_relative_path)
 
         # Try absolute path from project root
         project_root_path = Path("..") / file_path_obj
-        print(f"🔍 PDF Agent - Trying project root path: {project_root_path}")
+        logger.debug(f"PDF Agent - Trying project root path: {project_root_path}")
         if project_root_path.exists():
-            print(f"✅ PDF Agent - Found file at project root path: {project_root_path}")
+            logger.info(f"PDF Agent - Found file at project root path: {project_root_path}")
             return str(project_root_path)
 
         # Return original path if nothing works
-        print(f"❌ PDF Agent - Could not resolve file path, using original: {file_path_obj}")
+        logger.error(f"PDF Agent - Could not resolve file path, using original: {file_path_obj}")
         return str(file_path_obj)
 
     async def process_file(self, file_path: str, user_id: str) -> Dict[str, Any]:
         """Process a PDF document file with advanced extraction capabilities."""
         try:
-            print(f"📋 PDF Agent processing: {file_path}")
+            logger.info(f"📋 PDF Agent processing: {file_path}")
 
             # Resolve file path
             resolved_path = self._resolve_file_path(file_path)
@@ -142,8 +142,8 @@ class PDFAgent:
                     ]
                 }
             }
-            
-            print(f"✅ PDF Agent completed: {file_path} ({pdf_data['metadata']['page_count']} pages, "
+
+            logger.info(f"PDF Agent completed: {file_path} ({pdf_data['metadata']['page_count']} pages, "
                   f"{len(pdf_data.get('images', []))} images, {len(pdf_data.get('tables', []))} tables)")
             return result
 
@@ -171,7 +171,7 @@ class PDFAgent:
         try:
             # Resolve file path first
             resolved_path = self._resolve_file_path(file_path)
-            print(f"📄 PDF Agent processing resolved path: {resolved_path}")
+            logger.info(f"PDF Agent processing resolved path: {resolved_path}")
             
             # Use PyMuPDF for advanced extraction
             doc = fitz.open(resolved_path)
@@ -279,7 +279,7 @@ class PDFAgent:
                         if page_text.strip():
                             text_content.append(f"--- Page {page_num + 1} ---\n{page_text}")
                     except Exception as e:
-                        print(f"⚠️ Error extracting text from page {page_num + 1}: {e}")
+                        logger.error(f"Error extracting text from page {page_num + 1}: {e}")
                         text_content.append(f"--- Page {page_num + 1} ---\n[Text extraction failed]")
                 
                 full_text = '\n\n'.join(text_content)

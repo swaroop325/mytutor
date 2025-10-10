@@ -191,7 +191,7 @@ class KnowledgeBaseService:
             else:
                 # Default to text processing
                 categories[AgentType.TEXT].append(file_path)
-                print(f"⚠️ Unknown file type for {file_path}, defaulting to text processing")
+                logger.warning(f"⚠️ Unknown file type for {file_path}, defaulting to text processing")
         
         return categories
     
@@ -222,11 +222,11 @@ class KnowledgeBaseService:
                 kb.status = ProcessingStatus.ERROR
                 kb.updated_at = datetime.now().isoformat()
                 error_messages = [f"{agent.agent_type}: {agent.error_message}" for agent in failed_agents]
-                print(f"❌ KB {kb_id} processing failed. Errors: {'; '.join(error_messages)}")
+                logger.error(f"❌ KB {kb_id} processing failed. Errors: {'; '.join(error_messages)}")
                 return
             
             # All agents completed successfully, start training phase
-            print(f"🔄 All agents completed for KB {kb_id}, starting training content generation...")
+            logger.info(f"🔄 All agents completed for KB {kb_id}, starting training content generation...")
             kb.status = ProcessingStatus.TRAINING
             kb.updated_at = datetime.now().isoformat()
 
@@ -237,17 +237,17 @@ class KnowledgeBaseService:
             kb = self.knowledge_bases[kb_id]
             if kb.training_content and kb.training_content.get("status") == "completed":
                 # Mark as completed and training ready ONLY if content generation succeeded
-                print(f"✅ Knowledge base {kb_id} is now ready for training!")
+                logger.info(f"✅ Knowledge base {kb_id} is now ready for training!")
                 kb.status = ProcessingStatus.COMPLETED
                 kb.training_ready = True
                 kb.updated_at = datetime.now().isoformat()
             else:
                 # Training content generation failed or incomplete
-                print(f"⚠️ Training content generation incomplete for KB {kb_id}")
+                logger.warning(f"⚠️ Training content generation incomplete for KB {kb_id}")
                 kb.status = ProcessingStatus.COMPLETED  # File processing completed
                 kb.training_ready = False  # But not ready for training yet
                 kb.updated_at = datetime.now().isoformat()
-                print(f"💡 Training content can be regenerated manually via /generate-training endpoint")
+                logger.info(f"💡 Training content can be regenerated manually via /generate-training endpoint")
 
             # Save updated status to AgentCore Memory
             await self._save_to_memory()
@@ -259,7 +259,7 @@ class KnowledgeBaseService:
             kb = self.knowledge_bases[kb_id]
             kb.status = ProcessingStatus.ERROR
             kb.updated_at = datetime.now().isoformat()
-            print(f"Error processing knowledge base {kb_id}: {e}")
+            logger.error(f"Error processing knowledge base {kb_id}: {e}")
     
     async def _process_agent_files(
         self,
@@ -284,7 +284,7 @@ class KnowledgeBaseService:
 
             # Update status to processing
             agent_status.status = ProcessingStatus.PROCESSING
-            print(f"🔄 Starting {agent_type.value} agent processing for {len(files)} files...")
+            logger.info(f"🔄 Starting {agent_type.value} agent processing for {len(files)} files...")
 
             # Start async processing (returns immediately with session_id)
             result = await agent_client.process_uploaded_files(
@@ -304,10 +304,10 @@ class KnowledgeBaseService:
                 # Fallback to sync mode if no session_id returned
                 agent_status.status = ProcessingStatus.ERROR
                 agent_status.error_message = result.get("message", "Failed to start processing")
-                print(f"❌ {agent_type.value} agent failed to start: {result.get('message')}")
+                logger.error(f"❌ {agent_type.value} agent failed to start: {result.get('message')}")
                 return
 
-            print(f"📊 {agent_type.value} agent started with session {session_id}, polling for status...")
+            logger.info(f"📊 {agent_type.value} agent started with session {session_id}, polling for status...")
 
             # Poll for status until completed or error
             max_poll_attempts = 600  # 10 minutes max (1 poll every second)
@@ -321,7 +321,7 @@ class KnowledgeBaseService:
 
                 # Ensure status_result is a dict
                 if not isinstance(status_result, dict):
-                    print(f"⚠️ Unexpected status result type: {type(status_result)} - {status_result}")
+                    logger.warning(f"⚠️ Unexpected status result type: {type(status_result)} - {status_result}")
                     agent_status.status = ProcessingStatus.ERROR
                     agent_status.error_message = f"Invalid status response: {status_result}"
                     return
@@ -329,7 +329,7 @@ class KnowledgeBaseService:
                 if status_result.get("status") == "not_found":
                     agent_status.status = ProcessingStatus.ERROR
                     agent_status.error_message = "Session not found"
-                    print(f"❌ Session {session_id} not found")
+                    logger.error(f"❌ Session {session_id} not found")
                     return
 
                 current_status = status_result.get("status")
@@ -350,9 +350,9 @@ class KnowledgeBaseService:
                         if kb.processed_results is None:
                             kb.processed_results = {}
                         kb.processed_results[agent_type.value] = status_result["results"]
-                        print(f"💾 Stored {len(status_result['results'])} results from {agent_type.value} agent")
+                        logger.info(f"💾 Stored {len(status_result['results'])} results from {agent_type.value} agent")
 
-                    print(f"✅ {agent_type.value} agent completed processing {len(files)} files")
+                    logger.info(f"✅ {agent_type.value} agent completed processing {len(files)} files")
                     break
 
                 elif current_status == "error":
@@ -360,19 +360,19 @@ class KnowledgeBaseService:
                     agent_status.status = ProcessingStatus.ERROR
                     error_msg = status_result.get("error") or status_result.get("message") or "Processing failed"
                     agent_status.error_message = error_msg
-                    print(f"❌ {agent_type.value} agent failed: {error_msg}")
-                    print(f"   Full error response: {status_result}")
+                    logger.error(f"❌ {agent_type.value} agent failed: {error_msg}")
+                    logger.error(f"   Full error response: {status_result}")
                     break
 
                 # Log progress periodically
                 if attempt % 10 == 0:
-                    print(f"  📈 {agent_type.value} agent progress: {progress}%")
+                    logger.info(f"  📈 {agent_type.value} agent progress: {progress}%")
 
             # Check if we timed out
             if agent_status.status == ProcessingStatus.PROCESSING:
                 agent_status.status = ProcessingStatus.ERROR
                 agent_status.error_message = f"Processing timeout after {max_poll_attempts} seconds"
-                print(f"⏱️ {agent_type.value} agent timeout after {max_poll_attempts}s")
+                logger.warning(f"⏱️ {agent_type.value} agent timeout after {max_poll_attempts}s")
 
             # Update overall KB progress
             total_processed = sum(status.files_processed for status in kb.agent_statuses)
@@ -383,7 +383,7 @@ class KnowledgeBaseService:
             if agent_status:
                 agent_status.status = ProcessingStatus.ERROR
                 agent_status.error_message = str(e)
-            print(f"❌ Error in {agent_type} agent: {e}")
+            logger.error(f"❌ Error in {agent_type} agent: {e}")
     
     async def _generate_training_content(self, kb_id: str, user_id: str):
         """Generate training content (MCQs, questions) from processed knowledge base with retry logic."""
@@ -391,12 +391,12 @@ class KnowledgeBaseService:
         
         for attempt in range(max_attempts):
             try:
-                print(f"🧠 Generating training content for KB {kb_id} (attempt {attempt + 1}/{max_attempts})...")
+                logger.info(f"🧠 Generating training content for KB {kb_id} (attempt {attempt + 1}/{max_attempts})...")
                 
                 # Add progressive delay between attempts
                 if attempt > 0:
                     delay = min(60, 15 * attempt)  # 15s, 30s, 45s, 60s
-                    print(f"⏳ Waiting {delay}s before retry to avoid throttling...")
+                    logger.info(f"⏳ Waiting {delay}s before retry to avoid throttling...")
                     await asyncio.sleep(delay)
                 
                 # Call the real agent to generate training content from AgentCore Memory
@@ -409,29 +409,29 @@ class KnowledgeBaseService:
                 kb = self.knowledge_bases[kb_id]
                 if result.get("status") == "completed":
                     kb.training_content = result
-                    print(f"✅ Training content generated successfully for KB {kb_id} on attempt {attempt + 1}")
+                    logger.info(f"✅ Training content generated successfully for KB {kb_id} on attempt {attempt + 1}")
                     return  # Success, exit retry loop
                 elif "ThrottlingException" in str(result.get("message", "")) or "Too many requests" in str(result.get("message", "")):
-                    print(f"⚠️ Throttled on attempt {attempt + 1}, will retry...")
+                    logger.warning(f"⚠️ Throttled on attempt {attempt + 1}, will retry...")
                     if attempt == max_attempts - 1:
-                        print(f"❌ Failed to generate training content after {max_attempts} attempts due to throttling")
+                        logger.error(f"❌ Failed to generate training content after {max_attempts} attempts due to throttling")
                         kb.training_content = {"status": "error", "message": "Training content generation failed due to rate limiting"}
                     continue
                 else:
-                    print(f"⚠️ Training content generation had issues: {result.get('message')}")
+                    logger.warning(f"⚠️ Training content generation had issues: {result.get('message')}")
                     kb.training_content = result
                     return  # Non-throttling error, don't retry
                 
             except Exception as e:
                 if "ThrottlingException" in str(e) or "Too many requests" in str(e):
-                    print(f"⚠️ Throttling exception on attempt {attempt + 1}: {e}")
+                    logger.warning(f"⚠️ Throttling exception on attempt {attempt + 1}: {e}")
                     if attempt == max_attempts - 1:
-                        print(f"❌ Failed to generate training content after {max_attempts} attempts")
+                        logger.error(f"❌ Failed to generate training content after {max_attempts} attempts")
                         kb = self.knowledge_bases[kb_id]
                         kb.training_content = {"status": "error", "message": f"Training content generation failed after {max_attempts} attempts due to throttling"}
                     continue
                 else:
-                    print(f"❌ Error generating training content for KB {kb_id}: {e}")
+                    logger.error(f"❌ Error generating training content for KB {kb_id}: {e}")
                     kb = self.knowledge_bases[kb_id]
                     kb.training_content = {"status": "error", "message": str(e)}
                     return  # Non-throttling error, don't retry
@@ -454,45 +454,45 @@ class KnowledgeBaseService:
         try:
             # **PRIORITY 1**: Extract from training_content if available
             if kb.training_content:
-                print(f"✅ Found training_content for KB {kb_id}, extracting...")
+                logger.info(f"✅ Found training_content for KB {kb_id}, extracting...")
                 extracted_content = self._extract_from_training_content(kb.training_content)
                 if extracted_content:
-                    print(f"✅ Successfully extracted content from training_content")
+                    logger.info(f"✅ Successfully extracted content from training_content")
                     return extracted_content
 
             # **PRIORITY 2**: Use stored processed_results
             if kb.processed_results:
-                print(f"✅ Found stored processing results for KB {kb_id}")
-                print(f"   Agent types: {list(kb.processed_results.keys())}")
+                logger.info(f"✅ Found stored processing results for KB {kb_id}")
+                logger.info(f"   Agent types: {list(kb.processed_results.keys())}")
 
                 # Generate learning content from stored results
                 result = await agent_client.generate_learning_content_from_results(kb_id, kb.processed_results)
 
                 if result.get("status") == "completed" and result.get("content"):
-                    print(f"✅ Generated AI learning content from stored results")
+                    logger.info(f"✅ Generated AI learning content from stored results")
                     return result["content"]
                 else:
-                    print(f"⚠️ Could not generate from results: {result.get('message')}")
+                    logger.warning(f"⚠️ Could not generate from results: {result.get('message')}")
             else:
-                print(f"⚠️ No processed_results found in KB, trying agent memory search...")
+                logger.warning(f"⚠️ No processed_results found in KB, trying agent memory search...")
 
                 # Fallback: Try agent memory search
                 result = await agent_client.get_learning_content(kb_id)
 
                 if result.get("status") == "completed" and result.get("content"):
-                    print(f"✅ Using AI-generated learning content from memory")
+                    logger.info(f"✅ Using AI-generated learning content from memory")
                     return result["content"]
                 else:
-                    print(f"⚠️ Memory search failed: {result.get('message')}")
+                    logger.warning(f"⚠️ Memory search failed: {result.get('message')}")
 
             # Final fallback
-            print(f"⚠️ Using fallback learning content")
+            logger.warning(f"⚠️ Using fallback learning content")
             return self._generate_fallback_learning_content(kb)
 
         except Exception as e:
-            print(f"❌ Error getting learning content for KB {kb_id}: {e}")
+            logger.error(f"❌ Error getting learning content for KB {kb_id}: {e}")
             import traceback
-            traceback.print_exc()
+            logger.error(traceback.format_exc())
             return self._generate_fallback_learning_content(kb)
     
     def _extract_from_training_content(self, training_content: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -534,7 +534,7 @@ class KnowledgeBaseService:
                 "learning_objectives": learning_objectives[:7]  # Limit to 7
             }
         except Exception as e:
-            print(f"⚠️ Failed to extract from training_content: {e}")
+            logger.warning(f"⚠️ Failed to extract from training_content: {e}")
             return None
 
     def _generate_fallback_learning_content(self, kb: KnowledgeBase) -> Dict[str, Any]:
@@ -587,12 +587,12 @@ class KnowledgeBaseService:
         self.training_sessions[session_id] = session
         
         # Generate first question
-        print(f"🎯 Starting training session {session_id} for KB {kb_id}")
+        logger.info(f"🎯 Starting training session {session_id} for KB {kb_id}")
         await self._generate_next_question(session_id)
         
         # Ensure we have a question before returning
         if not session.current_question:
-            print(f"⚠️ No question generated, creating fallback for session {session_id}")
+            logger.warning(f"⚠️ No question generated, creating fallback for session {session_id}")
             session.current_question = self._generate_fallback_question(0, kb.name)
         
         # Save session to persistent storage
@@ -609,9 +609,9 @@ class KnowledgeBaseService:
             # Determine which question type to generate (cycle through configured types)
             question_type = session.question_types[session.questions_answered % len(session.question_types)]
 
-            print(f"🧠 Generating question {session.questions_answered + 1} for session {session_id}")
-            print(f"📚 Knowledge base: {kb.name} (ID: {kb.id})")
-            print(f"❓ Question type: {question_type}")
+            logger.info(f"🧠 Generating question {session.questions_answered + 1} for session {session_id}")
+            logger.info(f"📚 Knowledge base: {kb.name} (ID: {kb.id})")
+            logger.info(f"❓ Question type: {question_type}")
 
             # Add small delay to prevent Bedrock API throttling
             if session.questions_answered > 0:
@@ -619,9 +619,9 @@ class KnowledgeBaseService:
                 await asyncio.sleep(1.5)  # 1.5 second delay between questions
 
             # Debug: Check what we're sending
-            print(f"🔍 KB has processed_results: {bool(kb.processed_results)}")
+            logger.debug(f"🔍 KB has processed_results: {bool(kb.processed_results)}")
             if kb.processed_results:
-                print(f"   Keys in processed_results: {list(kb.processed_results.keys())}")
+                logger.debug(f"   Keys in processed_results: {list(kb.processed_results.keys())}")
 
             # Call agent to generate question of the specified type
             # Pass processed_results so agent can access educational content directly
@@ -638,23 +638,23 @@ class KnowledgeBaseService:
                 result.get("question") and 
                 self._validate_question_structure(result.get("question"))):
                 session.current_question = result.get("question")
-                print(f"✅ Question generated successfully for session {session_id}")
-                print(f"🎯 Question topic: {session.current_question.get('topic', 'General Knowledge')}")
+                logger.info(f"✅ Question generated successfully for session {session_id}")
+                logger.info(f"🎯 Question topic: {session.current_question.get('topic', 'General Knowledge')}")
             else:
-                print(f"⚠️ Agent failed to generate valid question: {result.get('message', 'Unknown error')}")
-                print(f"🔄 Using contextual fallback for session {session_id}")
+                logger.warning(f"⚠️ Agent failed to generate valid question: {result.get('message', 'Unknown error')}")
+                logger.info(f"🔄 Using contextual fallback for session {session_id}")
                 # Fallback question when agent is not available or returns invalid data
                 session.current_question = self._generate_fallback_question(session.questions_answered, kb.name)
             
         except Exception as e:
-            print(f"❌ Error generating question for session {session_id}: {e}")
+            logger.error(f"❌ Error generating question for session {session_id}: {e}")
             # Provide fallback question
             session = self.training_sessions.get(session_id)
             if session:
                 kb = self.knowledge_bases.get(session.knowledge_base_id)
                 kb_name = kb.name if kb else "Unknown Course"
                 session.current_question = self._generate_fallback_question(session.questions_answered, kb_name)
-                print(f"🔄 Using fallback question for session {session_id}")
+                logger.info(f"🔄 Using fallback question for session {session_id}")
     
     def _validate_question_structure(self, question: Dict[str, Any]) -> bool:
         """Validate that a question has all required fields with proper types."""
@@ -664,41 +664,41 @@ class KnowledgeBaseService:
             # Check all required fields exist and are not None/empty
             for field in required_fields:
                 if not question.get(field):
-                    print(f"⚠️ Question validation failed: missing or empty field '{field}'")
+                    logger.warning(f"⚠️ Question validation failed: missing or empty field '{field}'")
                     return False
             
             # Validate question text is a string
             if not isinstance(question.get('question'), str):
-                print(f"⚠️ Question validation failed: 'question' field is not a string")
+                logger.warning(f"⚠️ Question validation failed: 'question' field is not a string")
                 return False
             
             # Validate options is a dict with string values
             options = question.get('options')
             if not isinstance(options, dict) or len(options) < 2:
-                print(f"⚠️ Question validation failed: 'options' must be a dict with at least 2 options")
+                logger.warning(f"⚠️ Question validation failed: 'options' must be a dict with at least 2 options")
                 return False
             
             for key, value in options.items():
                 if not isinstance(value, str):
-                    print(f"⚠️ Question validation failed: option '{key}' value is not a string")
+                    logger.warning(f"⚠️ Question validation failed: option '{key}' value is not a string")
                     return False
             
             # Validate correct_answer exists in options
             correct_answer = question.get('correct_answer')
             if correct_answer not in options:
-                print(f"⚠️ Question validation failed: correct_answer '{correct_answer}' not found in options")
+                logger.info(f"⚠️ Question validation failed: correct_answer '{correct_answer}' not found in options")
                 return False
             
             # Validate explanation is a string
             if not isinstance(question.get('explanation'), str):
-                print(f"⚠️ Question validation failed: 'explanation' field is not a string")
+                logger.info(f"⚠️ Question validation failed: 'explanation' field is not a string")
                 return False
             
-            print(f"✅ Question structure validation passed")
+            logger.info(f"✅ Question structure validation passed")
             return True
             
         except Exception as e:
-            print(f"❌ Question validation error: {e}")
+            logger.info(f"❌ Question validation error: {e}")
             return False
     
     def _generate_fallback_question(self, question_number: int, kb_name: str) -> Dict[str, Any]:
@@ -825,7 +825,7 @@ class KnowledgeBaseService:
                 return self._get_emergency_fallback_question(kb_name)
 
         except Exception as e:
-            print(f"❌ Error in fallback question generation: {e}")
+            logger.info(f"❌ Error in fallback question generation: {e}")
             # Return emergency fallback question
             return self._get_emergency_fallback_question(kb_name)
     
@@ -927,7 +927,7 @@ class KnowledgeBaseService:
             if not kb:
                 return {"status": "error", "message": "Knowledge base not found"}
             
-            print(f"🔄 Recategorizing knowledge base {kb_id} with correct file paths")
+            logger.info(f"🔄 Recategorizing knowledge base {kb_id} with correct file paths")
             
             # Recategorize files with correct paths
             file_categories = self._categorize_files(correct_file_paths)
@@ -952,8 +952,8 @@ class KnowledgeBaseService:
             # Save changes
             await self._save_to_memory()
             
-            print(f"✅ Successfully recategorized knowledge base {kb_id}")
-            print(f"   New agent types: {[status.agent_type for status in new_agent_statuses]}")
+            logger.info(f"✅ Successfully recategorized knowledge base {kb_id}")
+            logger.info(f"   New agent types: {[status.agent_type for status in new_agent_statuses]}")
             
             return {
                 "status": "success",
@@ -962,7 +962,7 @@ class KnowledgeBaseService:
             }
             
         except Exception as e:
-            print(f"❌ Error recategorizing knowledge base {kb_id}: {e}")
+            logger.info(f"❌ Error recategorizing knowledge base {kb_id}: {e}")
             return {"status": "error", "message": str(e)}
     
     async def end_training_session(self, session_id: str) -> Dict[str, Any]:
@@ -995,7 +995,7 @@ class KnowledgeBaseService:
                     "message": "Knowledge base not found"
                 }
             
-            print(f"🗑️ Deleting knowledge base {kb_id} for user {user_id}")
+            logger.info(f"🗑️ Deleting knowledge base {kb_id} for user {user_id}")
             
             # Clean up AgentCore Memory if available
             await self._cleanup_kb_memory(kb_id, user_id)
@@ -1010,14 +1010,14 @@ class KnowledgeBaseService:
             ]
             
             if sessions_to_remove:
-                print(f"🗑️ Found {len(sessions_to_remove)} training sessions to delete for KB {kb_id}")
+                logger.info(f"🗑️ Found {len(sessions_to_remove)} training sessions to delete for KB {kb_id}")
                 for session_id in sessions_to_remove:
                     session = self.training_sessions[session_id]
-                    print(f"   - Deleting session {session_id} (created: {session.created_at}, status: {session.status})")
+                    logger.info(f"   - Deleting session {session_id} (created: {session.created_at}, status: {session.status})")
                     del self.training_sessions[session_id]
-                print(f"✅ Cleaned up {len(sessions_to_remove)} training sessions for KB {kb_id}")
+                logger.info(f"✅ Cleaned up {len(sessions_to_remove)} training sessions for KB {kb_id}")
             else:
-                print(f"ℹ️ No training sessions found for KB {kb_id}")
+                logger.info(f"ℹ️ No training sessions found for KB {kb_id}")
             
             # Remove from local storage
             del self.knowledge_bases[kb_id]
@@ -1025,7 +1025,7 @@ class KnowledgeBaseService:
             # Save updated registry and sessions to persistent storage
             await self._save_to_memory()
             
-            print(f"✅ Successfully deleted knowledge base {kb_id}")
+            logger.info(f"✅ Successfully deleted knowledge base {kb_id}")
             
             return {
                 "status": "success",
@@ -1034,7 +1034,7 @@ class KnowledgeBaseService:
             }
             
         except Exception as e:
-            print(f"❌ Error deleting knowledge base {kb_id}: {e}")
+            logger.info(f"❌ Error deleting knowledge base {kb_id}: {e}")
             return {
                 "status": "error",
                 "message": f"Failed to delete knowledge base: {str(e)}"
@@ -1056,15 +1056,15 @@ class KnowledgeBaseService:
             
             memory_sessions.append(f"{kb_id}_training_content")
             
-            print(f"🧹 Cleaning up {len(memory_sessions)} memory sessions for KB {kb_id}")
+            logger.info(f"🧹 Cleaning up {len(memory_sessions)} memory sessions for KB {kb_id}")
             
             # In a real implementation, you would call AgentCore Memory API to delete these sessions
             # For now, we'll just log what would be deleted
             for session_id in memory_sessions:
-                print(f"   - Would delete memory session: {session_id}")
+                logger.info(f"   - Would delete memory session: {session_id}")
                 
         except Exception as e:
-            print(f"⚠️ Warning: Could not clean up memory for KB {kb_id}: {e}")
+            logger.info(f"⚠️ Warning: Could not clean up memory for KB {kb_id}: {e}")
 
     async def _cleanup_uploaded_files(self, kb_id: str, user_id: str):
         """Clean up uploaded files after successful processing."""
@@ -1082,7 +1082,7 @@ class KnowledgeBaseService:
                 if agent_status.file_ids:
                     file_ids.extend(agent_status.file_ids)
 
-            print(f"🧹 Cleaning up {len(file_ids)} uploaded files for KB {kb_id}...")
+            logger.info(f"🧹 Cleaning up {len(file_ids)} uploaded files for KB {kb_id}...")
 
             # Delete each file
             for file_id in file_ids:
@@ -1098,18 +1098,18 @@ class KnowledgeBaseService:
             # Convert size to human-readable format
             size_mb = total_size / (1024 * 1024)
             if deleted_count > 0:
-                print(f"✅ Cleaned up {deleted_count} files ({size_mb:.2f} MB) for KB {kb_id}")
+                logger.info(f"✅ Cleaned up {deleted_count} files ({size_mb:.2f} MB) for KB {kb_id}")
             else:
-                print(f"ℹ️ No files to clean up for KB {kb_id}")
+                logger.info(f"ℹ️ No files to clean up for KB {kb_id}")
 
         except Exception as e:
-            print(f"⚠️ Warning: Could not clean up files for KB {kb_id}: {e}")
+            logger.info(f"⚠️ Warning: Could not clean up files for KB {kb_id}: {e}")
 
     def _init_memory(self):
         """Initialize AgentCore Memory for knowledge base persistence."""
         # Memory operations are handled by the agent, not the backend
         # The backend will use simple file-based persistence as fallback
-        print("ℹ️ Knowledge Base persistence will be handled by AgentCore agent")
+        logger.info("ℹ️ Knowledge Base persistence will be handled by AgentCore agent")
         return None
 
     async def _load_from_memory(self):
@@ -1125,9 +1125,9 @@ class KnowledgeBaseService:
                         kb = KnowledgeBase(**kb_dict)
                         self.knowledge_bases[kb_id] = kb
                     
-                    print(f"✅ Loaded {len(self.knowledge_bases)} knowledge bases from file storage")
+                    logger.info(f"✅ Loaded {len(self.knowledge_bases)} knowledge bases from file storage")
             else:
-                print("ℹ️ No existing knowledge base registry found, starting fresh")
+                logger.info("ℹ️ No existing knowledge base registry found, starting fresh")
             
             # Load training sessions
             sessions_file = Path("data/training_sessions.json")
@@ -1139,12 +1139,12 @@ class KnowledgeBaseService:
                         session = TrainingSession(**session_dict)
                         self.training_sessions[session_id] = session
                     
-                    print(f"✅ Loaded {len(self.training_sessions)} training sessions from file storage")
+                    logger.info(f"✅ Loaded {len(self.training_sessions)} training sessions from file storage")
             else:
-                print("ℹ️ No existing training sessions found, starting fresh")
+                logger.info("ℹ️ No existing training sessions found, starting fresh")
                 
         except Exception as e:
-            print(f"❌ Error loading data: {e}")
+            logger.info(f"❌ Error loading data: {e}")
 
     async def _save_to_memory(self):
         """Save knowledge bases and training sessions to simple file storage."""
@@ -1173,10 +1173,10 @@ class KnowledgeBaseService:
             with open(sessions_file, 'w') as f:
                 json.dump(session_data, f, indent=2)
             
-            print(f"✅ Saved {len(self.knowledge_bases)} knowledge bases and {len(self.training_sessions)} training sessions to file storage")
+            logger.info(f"✅ Saved {len(self.knowledge_bases)} knowledge bases and {len(self.training_sessions)} training sessions to file storage")
             
         except Exception as e:
-            print(f"❌ Error saving data: {e}")
+            logger.info(f"❌ Error saving data: {e}")
 
 
 # Global service instance

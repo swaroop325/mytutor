@@ -35,7 +35,7 @@ class BedrockRateLimiter:
         # Check if we're in backoff period
         if self.time.time() < self.backoff_until:
             wait_time = self.backoff_until - self.time.time()
-            print(f"⏳ Rate limiter: waiting {wait_time:.1f}s (backoff after throttle)")
+            logger.info(f"Rate limiter: waiting {wait_time:.1f}s (backoff after throttle)")
             await asyncio.sleep(wait_time)
 
         # Remove requests older than 1 minute
@@ -45,7 +45,7 @@ class BedrockRateLimiter:
         # If at limit, wait until oldest request expires
         if len(self.request_times) >= self.max_requests:
             wait_time = 60 - (current_time - self.request_times[0]) + 0.1
-            print(f"⏳ Rate limiter: {len(self.request_times)}/{self.max_requests} requests in last minute, waiting {wait_time:.1f}s")
+            logger.info(f"Rate limiter: {len(self.request_times)}/{self.max_requests} requests in last minute, waiting {wait_time:.1f}s")
             await asyncio.sleep(wait_time)
             # Clean again after waiting
             current_time = self.time.time()
@@ -57,7 +57,7 @@ class BedrockRateLimiter:
     def set_backoff(self, seconds=30):
         """Set backoff period after receiving throttling error."""
         self.backoff_until = self.time.time() + seconds
-        print(f"🛑 Rate limiter: entering {seconds}s backoff period")
+        logger.info(f"Rate limiter: entering {seconds}s backoff period")
 
 
 # Global rate limiter instance (8 requests/minute is conservative for shared Bedrock accounts)
@@ -135,7 +135,7 @@ class TrainingAgent:
                                 assessment_config: Optional[Dict[str, Any]] = None) -> AssessmentSet:
         """Generate a complete assessment set from content."""
         try:
-            print(f"🎓 TRAINING Agent generating assessment from content")
+            logger.info("TRAINING Agent generating assessment from content")
             logger.info("Starting assessment generation")
             
             # Parse assessment configuration
@@ -158,14 +158,14 @@ class TrainingAgent:
                 config
             )
             
-            print(f"✅ TRAINING Agent generated {len(questions)} questions")
+            logger.info(f"TRAINING Agent generated {len(questions)} questions")
             logger.info(f"Assessment generation completed: {len(questions)} questions")
             
             return assessment_set
             
         except Exception as e:
             logger.error(f"Assessment generation failed: {e}", exc_info=True)
-            print(f"❌ TRAINING Agent error: {e}")
+            logger.error(f"TRAINING Agent error: {e}")
             # Return empty assessment set on error
             return AssessmentSet(
                 content_source=content_metadata.get('filename', 'Unknown'),
@@ -182,11 +182,11 @@ class TrainingAgent:
     async def extract_learning_content(self, content: str) -> Dict[str, Any]:
         """Extract learning content summary for pre-study phase."""
         try:
-            print(f"📚 Extracting learning content from {len(content):,} characters")
+            logger.info(f"Extracting learning content from {len(content):,} characters")
 
             # Smart content handling: extract key sections instead of simple truncation
             if len(content) > 20000:
-                print(f"📚 Content is large ({len(content):,} chars), using smart extraction...")
+                logger.info(f"Content is large ({len(content):,} chars), using smart extraction")
                 content_excerpt = self._extract_smart_representative_content(content, max_length=18000)
             else:
                 content_excerpt = content
@@ -248,7 +248,7 @@ Be specific to the actual content - do not use generic placeholders."""
                     if field not in learning_content:
                         raise ValueError(f"Missing required field: {field}")
 
-                print(f"✅ Extracted learning content with {len(learning_content['key_concepts'])} concepts")
+                logger.info(f"Extracted learning content with {len(learning_content['key_concepts'])} concepts")
                 return learning_content
 
             except (json.JSONDecodeError, ValueError) as e:
@@ -284,22 +284,22 @@ Be specific to the actual content - do not use generic placeholders."""
     async def extract_learning_content_chunked(self, content: str) -> Dict[str, Any]:
         """Extract learning content from long content using intelligent chunking."""
         try:
-            print(f"📚 Processing long content ({len(content)} chars) with intelligent chunking...")
+            logger.info(f"Processing long content ({len(content)} chars) with intelligent chunking")
             
             # Split content into meaningful chunks (by paragraphs, sections, etc.)
             chunks = self._intelligent_content_chunking(content, max_chunk_size=15000)
-            print(f"📄 Split content into {len(chunks)} chunks")
+            logger.info(f"Split content into {len(chunks)} chunks")
             
             # Extract learning content from each chunk
             chunk_results = []
             for i, chunk in enumerate(chunks[:5]):  # Limit to first 5 chunks to avoid excessive API calls
-                print(f"🔍 Processing chunk {i+1}/{min(len(chunks), 5)}...")
+                logger.info(f"Processing chunk {i+1}/{min(len(chunks), 5)}")
                 chunk_result = await self.extract_learning_content(chunk)
                 chunk_results.append(chunk_result)
             
             # Merge results intelligently
             merged_result = self._merge_learning_content_results(chunk_results)
-            print(f"✅ Merged learning content from {len(chunk_results)} chunks")
+            logger.info(f"Merged learning content from {len(chunk_results)} chunks")
             
             return merged_result
             
@@ -390,7 +390,7 @@ Be specific to the actual content - do not use generic placeholders."""
         if len(content) <= max_length:
             return content
 
-        print(f"🔍 Smart extraction: {len(content):,} chars → {max_length:,} chars target")
+        logger.info(f"Smart extraction: {len(content):,} chars to {max_length:,} chars target")
 
         # Split into lines for analysis
         lines = content.split('\n')
@@ -468,7 +468,7 @@ Be specific to the actual content - do not use generic placeholders."""
         if len(final_excerpt) > max_length:
             final_excerpt = final_excerpt[:max_length] + "\n\n[Content truncated for processing]"
 
-        print(f"✅ Extracted {len(final_excerpt):,} chars with intro, structure, samples, and conclusions")
+        logger.info(f"Extracted {len(final_excerpt):,} chars with intro, structure, samples, and conclusions")
         return final_excerpt
 
     def _extract_key_content_for_questions(self, content: str, max_length: int = 3000) -> str:
@@ -673,7 +673,7 @@ Respond in JSON format:
             # Parse questions from response
             questions = self._parse_generated_questions(questions_text, question_type, analysis)
             
-            print(f"✅ Generated {len(questions)} {question_type} questions")
+            logger.info(f"Generated {len(questions)} {question_type} questions")
             return questions
             
         except Exception as e:

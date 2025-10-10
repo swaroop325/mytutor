@@ -168,7 +168,7 @@ class FileUploadService:
         # Register file in registry
         self._register_file(file_info)
         
-        print(f"✅ File uploaded and registered: {safe_filename} ({category.value})")
+        logger.info(f"✅ File uploaded and registered: {safe_filename} ({category.value})")
         
         return file_info
     
@@ -234,11 +234,11 @@ class FileUploadService:
             del self._file_registry[file_id]
             self._save_file_registry()
             
-            print(f"✅ File deleted: {file_info.filename}")
+            logger.info(f"✅ File deleted: {file_info.filename}")
             return True
             
         except Exception as e:
-            print(f"❌ Error deleting file {file_id}: {e}")
+            logger.error(f"❌ Error deleting file {file_id}: {e}")
             return False
     
     def get_user_files(self, user_id: str) -> List[UploadedFileInfo]:
@@ -257,7 +257,7 @@ class FileUploadService:
                     return registry
             return {}
         except Exception as e:
-            print(f"⚠️ Error loading file registry: {e}")
+            logger.warning(f"⚠️ Error loading file registry: {e}")
             return {}
     
     def _save_file_registry(self):
@@ -270,7 +270,7 @@ class FileUploadService:
             with open(self.registry_file, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            print(f"⚠️ Error saving file registry: {e}")
+            logger.warning(f"⚠️ Error saving file registry: {e}")
     
     def _register_file(self, file_info: UploadedFileInfo):
         """Register a file in the registry."""

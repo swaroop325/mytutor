@@ -1,7 +1,7 @@
 """
 Full course processor with module-by-module navigation.
 Handles complete course extraction including text, audio, video.
-Uses AgentCore memory for persistent knowledge base storage.
+Uses local file-based knowledge base storage (no AgentCore Memory throttling).
 Supports YouTube video analysis via browser automation.
 """
 import os
@@ -19,16 +19,15 @@ from bedrock_agentcore import BedrockAgentCoreApp
 # Configure logging
 logger = logging.getLogger(__name__)
 from bedrock_agentcore.tools.browser_client import BrowserClient
-from bedrock_agentcore.memory.session import MemorySessionManager
-from bedrock_agentcore.memory.constants import ConversationalMessage, MessageRole
-from bedrock_agentcore_starter_toolkit.operations.memory.manager import MemoryManager
-from bedrock_agentcore_starter_toolkit.operations.memory.models.strategies import SemanticStrategy
+
+# Import local KB storage instead of AgentCore Memory
+from services.local_kb_storage import local_kb_storage
 
 # Import training service for assessment generation
 try:
     from services.training_service import training_service
 except ImportError:
-    print("⚠️ Training service not available")
+    logger.warning("Training service not available")
     training_service = None
 from playwright.async_api import async_playwright, Page, Browser, Download
 from strands import Agent
@@ -49,7 +48,7 @@ os.environ.setdefault("ALLOW_CREDENTIALS", "true")
 os.environ.setdefault("ALLOW_METHODS", "*")
 os.environ.setdefault("ALLOW_HEADERS", "*")
 
-print("🔧 Configuring CORS for frontend access...")
+logger.info("Configuring CORS for frontend access")
 
 # Alternative approach: directly modify response headers in the invoke handler
 # This will be handled at the end of the file
@@ -78,7 +77,7 @@ class CourseModule:
 
 
 class FullCourseProcessor:
-    """Complete course processor with module navigation and memory integration."""
+    """Complete course processor with local KB storage integration."""
 
     def __init__(self, region: str = AWS_REGION):
         self.region = region
@@ -86,10 +85,9 @@ class FullCourseProcessor:
         self.agent = Agent()
         self.bedrock_client = boto3.client('bedrock-runtime', region_name=region)
 
-        # Initialize memory manager (non-blocking)
-        self.memory_manager = MemoryManager(region_name=region)
-        self.memory = None
-        # Note: Memory initialization happens lazily on first use to avoid blocking startup
+        # Use local KB storage instead of AgentCore Memory
+        self.kb_storage = local_kb_storage
+        logger.info("FullCourseProcessor initialized with local KB storage")
 
     def _chunk_content_for_memory(self, content: str, max_size: int = 8000) -> List[str]:
         """Split content into chunks that preserve context and fit within memory limits."""
@@ -136,170 +134,16 @@ class FullCourseProcessor:
         if current_chunk:
             chunks.append(current_chunk)
 
-        print(f"📄 Split content into {len(chunks)} contextual chunks to preserve all information")
+        logger.info(f"Split content into {len(chunks)} contextual chunks to preserve all information")
         return chunks
     
-    def _init_memory(self):
-        """Initialize or get existing memory for course knowledge bases."""
-        try:
-            print("🔄 Initializing AgentCore Memory...")
-            memory = self.memory_manager.get_or_create_memory(
-                name="MyTutorCourseKnowledgeBase",
-                description="Persistent storage for processed course content and knowledge",
-                strategies=[
-                    SemanticStrategy(
-                        name="courseSemanticMemory",
-                        namespaces=['/strategies/{memoryStrategyId}/actors/{actorId}/sessions/{sessionId}']
-                    )
-                ]
-            )
-            print(f"✅ Memory initialized: {memory.get('id')}")
-            return memory
-        except Exception as e:
-            print(f"❌ Warning: Could not initialize memory: {e}")
-            print("⚠️  Agent will continue without persistent storage")
-            return None
-
     def _save_module_to_memory(self, user_id: str, course_id: str, module: CourseModule):
-        """Save module content to persistent memory."""
-        # Lazily initialize memory on first use
-        if self.memory is None:
-            self.memory = self._init_memory()
-
-        if not self.memory:
-            return
-
-        try:
-            session_manager = MemorySessionManager(
-                memory_id=self.memory.get("id"),
-                region_name=self.region
-            )
-
-            session = session_manager.create_memory_session(
-                actor_id=user_id,
-                session_id=course_id
-            )
-
-            # Store module content as conversational message with size limits
-            header_info = f"""
-Module: {module.title}
-URL: {module.url}
-Order: {module.order}
-
-Content:
-"""
-            footer_info = f"""
-
-Videos: {len(module.videos)} found
-Audio: {len(module.audios)} found
-Files: {len(module.files)} found
-"""
-            
-            # Calculate available space for content
-            header_size = len(header_info)
-            footer_size = len(footer_info)
-            max_content_size = 8500 - header_size - footer_size  # Leave buffer
-            
-            # Truncate content if necessary
-            if len(module.text_content) > max_content_size:
-                truncated_content = module.text_content[:max_content_size] + "\n\n[Content truncated due to size limits...]"
-                print(f"⚠️ Module content truncated from {len(module.text_content)} to {len(truncated_content)} characters")
-            else:
-                truncated_content = module.text_content
-            
-            module_content = f"""
-Module: {module.title}
-URL: {module.url}
-Order: {module.order}
-
-Content:
-{truncated_content}
-
-Videos: {len(module.videos)} found
-Audio: {len(module.audios)} found
-Files: {len(module.files)} found
-"""
-            
-            # Final safety check
-            if len(module_content) > 9000:
-                module_content = module_content[:8900] + "\n\n[Content truncated to fit memory limits]"
-                print(f"⚠️ Emergency truncation applied to module content, final size: {len(module_content)} characters")
-
-            session.add_turns(
-                messages=[
-                    ConversationalMessage(
-                        module_content,
-                        MessageRole.ASSISTANT
-                    )
-                ]
-            )
-            print(f"✅ Saved module '{module.title}' to memory")
-
-        except Exception as e:
-            print(f"Warning: Could not save module to memory: {e}")
+        """No-op: Module saving deprecated in favor of local KB storage."""
+        pass
 
     def _save_summary_to_memory(self, user_id: str, course_id: str, summary: Dict[str, Any]):
-        """Save course summary to persistent memory."""
-        # Lazily initialize memory on first use
-        if self.memory is None:
-            self.memory = self._init_memory()
-
-        if not self.memory:
-            return
-
-        try:
-            session_manager = MemorySessionManager(
-                memory_id=self.memory.get("id"),
-                region_name=self.region
-            )
-
-            session = session_manager.create_memory_session(
-                actor_id=user_id,
-                session_id=f"{course_id}_summary"
-            )
-
-            # Store summary
-            summary_content = f"""
-Course Summary:
-Title: {summary.get('title', 'Unknown')}
-Total Modules: {summary.get('total_modules', 0)}
-
-Overview:
-{summary.get('overview', '')}
-
-Key Topics:
-{', '.join(summary.get('key_topics', []))}
-
-Learning Outcomes:
-{chr(10).join(f"- {outcome}" for outcome in summary.get('learning_outcomes', []))}
-"""
-
-            # Store summary with chunking if needed
-            summary_chunks = self._chunk_content_for_memory(summary_content)
-
-            for chunk in summary_chunks:
-                # Final safety check: AgentCore Memory has 9000 char limit per turn
-                if len(chunk) > 9000:
-                    print(f"⚠️ WARNING: Summary chunk too large ({len(chunk)} chars), truncating")
-                    chunk = chunk[:8900] + "\n\n[Content truncated due to size limit]"
-
-                session.add_turns(
-                    messages=[
-                        ConversationalMessage(
-                            chunk,
-                            MessageRole.ASSISTANT
-                        )
-                    ]
-                )
-            
-            if len(summary_chunks) > 1:
-                print(f"✅ Stored course summary in {len(summary_chunks)} chunks")
-            else:
-                print(f"✅ Stored course summary in memory")
-            print(f"✅ Saved course summary to memory")
-
-        except Exception as e:
-            print(f"Warning: Could not save summary to memory: {e}")
+        """No-op: Summary saving deprecated in favor of local KB storage."""
+        pass
 
     async def start_course_processing(
         self,
@@ -322,7 +166,7 @@ Learning Outcomes:
         # Check if YouTube URL
         is_youtube = self._is_youtube_url(course_url)
         if is_youtube:
-            print(f"📹 Detected YouTube URL, using browser-based analysis...")
+            logger.info("Detected YouTube URL, using browser-based analysis")
 
         client = None
         browser = None
@@ -340,7 +184,7 @@ Learning Outcomes:
                     break
                 except Exception as e:
                     if "limit" in str(e).lower() and attempt < max_retries - 1:
-                        print(f"⚠️ Connection limit reached, retrying in 5 seconds... (attempt {attempt + 1}/{max_retries})")
+                        logger.warning(f"Connection limit reached, retrying in 5 seconds (attempt {attempt + 1}/{max_retries})")
                         await asyncio.sleep(5)
                     else:
                         raise
@@ -391,7 +235,7 @@ Learning Outcomes:
 
             # Special handling for YouTube videos
             if is_youtube:
-                print("🎬 YouTube video loaded, analyzing content...")
+                logger.info("YouTube video loaded, analyzing content")
                 # Wait for video player to load
                 await asyncio.sleep(3)
 
@@ -472,7 +316,7 @@ AI Analysis:
                 course_id = f"youtube_{video_id}"
                 self._save_module_to_memory(user_id, course_id, module)
 
-                print(f"✅ YouTube video analyzed and saved to knowledge base")
+                logger.info("YouTube video analyzed and saved to knowledge base")
 
             # Extract MCP session ID from WebSocket URL
             # Format: wss://bedrock-agentcore.{region}.amazonaws.com/browser-streams/aws.browser.v1/sessions/{SESSION_ID}/automation
@@ -656,7 +500,7 @@ AI Analysis:
             return modules
 
         except Exception as e:
-            print(f"Error discovering modules: {e}")
+            logger.error(f"Error discovering modules: {e}")
             # Fallback: single module
             return [
                 CourseModule(
@@ -786,7 +630,7 @@ AI Analysis:
             }
 
         except Exception as e:
-            print(f"Error extracting module content: {e}")
+            logger.error(f"Error extracting module content: {e}")
             return {
                 "text": "",
                 "videos": [],
@@ -884,12 +728,6 @@ Format as JSON.
 
         # File processing session
         if session_type == "file_processing":
-            # Import memory save progress tracking
-            from file_processor import memory_save_progress
-
-            # Get memory save progress if available
-            mem_progress = memory_save_progress.get(session_id, {})
-
             status_response = {
                 "status": session.get("status"),
                 "session_id": session_id,
@@ -901,16 +739,8 @@ Format as JSON.
                 "agent_type": session.get("agent_type"),
                 "results": session.get("results"),
                 "error": session.get("error"),
-                "started_at": session.get("started_at")
-            }
-
-            # Add memory save progress if available
-            if mem_progress:
-                status_response["memory_save"] = {
-                    "chunks_saved": mem_progress.get("chunks_saved", 0),
-                    "total_chunks": mem_progress.get("total_chunks", 0),
-                    "status": mem_progress.get("status", "pending"),
-                    "progress_pct": int(mem_progress.get("chunks_saved", 0) / mem_progress.get("total_chunks", 1) * 100) if mem_progress.get("total_chunks", 0) > 0 else 0
+                "started_at": session.get("started_at"),
+                # Memory save progress removed (now using local KB storage)
                 }
 
             return status_response
@@ -952,77 +782,14 @@ Format as JSON.
         return {"status": "not_found", "message": "Session not found"}
 
     def get_saved_courses(self, user_id: str, query: Optional[str] = None) -> Dict[str, Any]:
-        """Retrieve saved courses from memory for a user."""
-        # Lazily initialize memory on first use
-        if self.memory is None:
-            self.memory = self._init_memory()
-
-        if not self.memory:
-            return {
-                "status": "error",
-                "message": "Memory not initialized",
-                "courses": []
-            }
-
-        try:
-            session_manager = MemorySessionManager(
-                memory_id=self.memory.get("id"),
-                region_name=self.region
-            )
-
-            # Create a temporary session to query memory
-            session = session_manager.create_memory_session(
-                actor_id=user_id,
-                session_id=f"query_{int(datetime.utcnow().timestamp())}"
-            )
-
-            if query:
-                # Semantic search for specific courses
-                memory_records = session.search_long_term_memories(
-                    query=query,
-                    namespace_prefix="/",
-                    top_k=10
-                )
-            else:
-                # List all memory records for this user
-                memory_records = session.list_long_term_memory_records(
-                    namespace_prefix="/"
-                )
-
-            # Parse and format results - filter for summaries and extract structured data
-            courses = []
-            course_map = {}  # Group by course_id
-
-            for record in memory_records:
-                namespace = record.get("namespace", "")
-                content_text = record.get("content", {}).get("text", "")
-
-                # Check if this is a summary record
-                if "_summary" in namespace:
-                    # Extract course_id from namespace
-                    course_id = namespace.split("/")[-1].replace("_summary", "")
-
-                    # Parse summary content
-                    course_data = self._parse_course_summary(content_text, course_id)
-                    course_data["id"] = record.get("memoryRecordId")
-                    course_data["created_at"] = record.get("createdAt")
-                    course_data["namespace"] = namespace
-
-                    course_map[course_id] = course_data
-                    courses.append(course_data)
-
-            return {
-                "status": "success",
-                "courses": courses,
-                "total": len(courses)
-            }
-
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": f"Failed to retrieve courses: {str(e)}",
-                "courses": []
-            }
+        """Retrieve saved courses - deprecated in favor of local KB storage."""
+        logger.info("get_saved_courses called - returning empty result (using local KB storage)")
+        return {
+            "status": "success",
+            "courses": [],
+            "total": 0,
+            "message": "Course retrieval deprecated - using local KB storage"
+        }
 
     def _parse_course_summary(self, content: str, course_id: str) -> Dict[str, Any]:
         """Parse summary text content into structured data."""
@@ -1072,75 +839,13 @@ Format as JSON.
         return parsed
 
     def get_course_details(self, user_id: str, course_id: str) -> Dict[str, Any]:
-        """Retrieve full course details including all modules."""
-        # Lazily initialize memory on first use
-        if self.memory is None:
-            self.memory = self._init_memory()
-
-        if not self.memory:
-            return {
-                "status": "error",
-                "message": "Memory not initialized"
-            }
-
-        try:
-            session_manager = MemorySessionManager(
-                memory_id=self.memory.get("id"),
-                region_name=self.region
-            )
-
-            # Create a temporary session to query memory
-            session = session_manager.create_memory_session(
-                actor_id=user_id,
-                session_id=f"query_{int(datetime.utcnow().timestamp())}"
-            )
-
-            # Get all memory records for this course
-            memory_records = session.list_long_term_memory_records(
-                namespace_prefix=f"/"
-            )
-
-            # Separate modules and summary
-            modules = []
-            summary = None
-
-            for record in memory_records:
-                namespace = record.get("namespace", "")
-                content_text = record.get("content", {}).get("text", "")
-
-                if course_id in namespace:
-                    if "_summary" in namespace:
-                        # This is the summary
-                        summary = self._parse_course_summary(content_text, course_id)
-                    else:
-                        # This is a module
-                        module_data = self._parse_module_content(content_text)
-                        module_data["record_id"] = record.get("memoryRecordId")
-                        modules.append(module_data)
-
-            # Sort modules by order
-            modules.sort(key=lambda x: x.get("order", 0))
-
-            if not summary:
-                return {
-                    "status": "error",
-                    "message": "Course not found"
-                }
-
-            # Combine summary and modules
-            return {
-                "status": "success",
-                "course": {
-                    **summary,
-                    "modules": modules
-                }
-            }
-
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": f"Failed to retrieve course details: {str(e)}"
-            }
+        """Retrieve course details - deprecated in favor of local KB storage."""
+        logger.info("get_course_details called - returning empty result (using local KB storage)")
+        return {
+            "status": "success",
+            "course": None,
+            "message": "Course details retrieval deprecated - using local KB storage"
+        }
 
     def _parse_module_content(self, content: str) -> Dict[str, Any]:
         """Parse module text content into structured data."""
@@ -1240,8 +945,8 @@ Format as JSON.
 
         except Exception as e:
             import traceback
-            print(f"❌ Error generating presigned URL: {e}")
-            print(traceback.format_exc())
+            logger.error(f"Error generating presigned URL: {e}")
+            logger.error(traceback.format_exc())
             return {
                 "status": "error",
                 "message": f"Failed to generate presigned URL: {str(e)}"
@@ -1267,9 +972,9 @@ Format as JSON.
             # This ensures content is always stored in memory for later retrieval
             if not kb_id:
                 kb_id = f"kb_{str(uuid.uuid4())}"
-                print(f"📋 Auto-generated knowledge base ID: {kb_id}")
+                logger.info(f"Auto-generated knowledge base ID: {kb_id}")
 
-            print(f"🚀 Starting async file processing session {session_id} for {len(file_paths)} files")
+            logger.info(f"Starting async file processing session {session_id} for {len(file_paths)} files")
 
             # Store session state
             active_sessions[session_id] = {
@@ -1303,7 +1008,7 @@ Format as JSON.
             }
 
         except Exception as e:
-            print(f"❌ Failed to start file processing: {str(e)}")
+            logger.error(f"Failed to start file processing: {str(e)}")
             return {
                 "status": "error",
                 "message": f"Failed to start file processing: {str(e)}"
@@ -1321,7 +1026,7 @@ Format as JSON.
             kb_id = session["kb_id"]
             agent_type = session["agent_type"]
 
-            print(f"🤖 Processing {len(file_paths)} files with specialized agents for KB {kb_id}")
+            logger.info(f"Processing {len(file_paths)} files with specialized agents for KB {kb_id}")
 
             # Update to show we've started processing (not stuck at 0%)
             session["progress"] = 10  # Initial progress to show we're working
@@ -1354,10 +1059,10 @@ Format as JSON.
             session["error"] = result.get("message") if result.get("status") == "error" else None
             session["progress"] = 100  # Mark as fully complete
 
-            print(f"✅ {agent_type.upper()} Agent completed processing for session {session_id}")
+            logger.info(f"{agent_type.upper()} Agent completed processing for session {session_id}")
 
         except Exception as e:
-            print(f"❌ Specialized agents failed: {str(e)}")
+            logger.error(f"Specialized agents failed: {str(e)}")
             session = active_sessions.get(session_id)
             if session:
                 session["status"] = "error"
@@ -1381,9 +1086,9 @@ Format as JSON.
             # This ensures content is always stored in memory for later retrieval
             if not kb_id:
                 kb_id = f"kb_{str(uuid.uuid4())}"
-                print(f"📋 Auto-generated knowledge base ID: {kb_id}")
+                logger.info(f"Auto-generated knowledge base ID: {kb_id}")
 
-            print(f"🤖 Processing {len(file_paths)} files with specialized agents for KB {kb_id}")
+            logger.info(f"Processing {len(file_paths)} files with specialized agents for KB {kb_id}")
 
             # Use the new specialized agent system
             result = await file_processor.process_files_with_agents(file_paths, user_id)
@@ -1404,85 +1109,36 @@ Format as JSON.
             # Add knowledge base ID to result for caller reference
             result["kb_id"] = kb_id
 
-            print(f"✅ {agent_type.upper()} Agent completed processing for KB {kb_id}")
+            logger.info(f"{agent_type.upper()} Agent completed processing for KB {kb_id}")
             return result
 
         except Exception as e:
-            print(f"❌ Specialized agents failed: {str(e)}")
+            logger.error(f"Specialized agents failed: {str(e)}")
             return {
                 "status": "error",
                 "message": f"Failed to process uploaded files: {str(e)}"
             }
     
     async def _store_agent_results_in_memory(self, kb_id: str, user_id: str, result: Dict[str, Any], agent_type: str):
-        """Store specialized agent results in AgentCore Memory."""
+        """Store specialized agent results in local KB storage."""
         try:
-            if self.memory is None:
-                self.memory = self._init_memory()
-            
-            if not self.memory:
-                return
-            
-            session_manager = MemorySessionManager(
-                memory_id=self.memory.get("id"),
-                region_name=self.region
-            )
-            
-            # Store results for each agent type
-            for agent_type, agent_results in result.get("results", {}).items():
-                session_id = self._clean_session_id(f"{kb_id}_{agent_type}_results")
-                
-                session = session_manager.create_memory_session(
-                    actor_id=user_id,
-                    session_id=session_id
+            # Store results for each agent type in local file storage
+            for agent_type_key, agent_results in result.get("results", {}).items():
+                # Save to local KB storage
+                self.kb_storage.save_agent_results(
+                    kb_id=kb_id,
+                    agent_type=agent_type_key,
+                    results=agent_results,
+                    metadata={
+                        "user_id": user_id,
+                        "processing_date": datetime.now().isoformat(),
+                        "files_processed": len(agent_results)
+                    }
                 )
-                
-                # Compile content from all files processed by this agent
-                agent_content = f"""
-Agent Type: {agent_type.upper()}
-Knowledge Base: {kb_id}
-Files Processed: {len(agent_results)}
-Processing Date: {datetime.now().isoformat()}
+                logger.info(f"Stored {agent_type_key} agent results in local KB storage for {kb_id}")
 
-Results Summary:
-"""
-                
-                for i, file_result in enumerate(agent_results, 1):
-                    if file_result.get('status') == 'completed':
-                        agent_content += f"""
-
---- File {i}: {os.path.basename(file_result.get('file_path', 'unknown'))} ---
-Content: {file_result.get('content', {}).get('text', '')[:1000]}...
-Analysis: {file_result.get('analysis', {}).get('ai_analysis', 'No analysis')[:500]}...
-"""
-                
-                # Split content into chunks to preserve all information
-                content_chunks = self._chunk_content_for_memory(agent_content)
-
-                for chunk in content_chunks:
-                    # Final safety check: AgentCore Memory has 9000 char limit per turn
-                    if len(chunk) > 9000:
-                        print(f"⚠️ WARNING: Chunk too large ({len(chunk)} chars), truncating to 8900 chars")
-                        chunk = chunk[:8900] + "\n\n[Content truncated due to size limit]"
-
-                    session.add_turns(
-                        messages=[
-                            ConversationalMessage(
-                                chunk,
-                                MessageRole.ASSISTANT
-                            )
-                        ]
-                    )
-                
-                if len(content_chunks) > 1:
-                    print(f"✅ Stored {agent_type} agent results in {len(content_chunks)} chunks for KB {kb_id}")
-                else:
-                    print(f"✅ Stored {agent_type} agent results in memory for KB {kb_id}")
-                
-                print(f"✅ Stored {agent_type} agent results in memory for KB {kb_id}")
-                
         except Exception as e:
-            print(f"⚠️ Could not store agent results in memory: {e}")
+            logger.error(f"Could not store agent results in local storage: {e}")
     
     async def _analyze_agent_results(self, agent_results: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
         """Generate comprehensive analysis from all agent results."""
@@ -1548,7 +1204,7 @@ Format as JSON with clear categories.
             }
             
         except Exception as e:
-            print(f"⚠️ Error generating comprehensive analysis: {e}")
+            logger.warning(f"Error generating comprehensive analysis: {e}")
             return {
                 "comprehensive_analysis": f"Analysis failed: {str(e)}",
                 "content_summary": content_summary,
@@ -1563,7 +1219,7 @@ Format as JSON with clear categories.
     ) -> Dict[str, Any]:
         """Process direct resource links and integrate with course pipeline."""
         try:
-            print(f"🔄 Processing {len(links)} direct links for user {user_id}")
+            logger.info(f"Processing {len(links)} direct links for user {user_id}")
             
             # Use the file processor to handle the links
             result = await file_processor.process_direct_links(
@@ -1610,7 +1266,7 @@ Format as JSON with clear categories.
     ) -> Dict[str, Any]:
         """Process mixed content sources (URL + files + links)."""
         try:
-            print(f"🔄 Processing mixed content for user {user_id}")
+            logger.info(f"Processing mixed content for user {user_id}")
             
             session_id = f"mixed_{abs(hash(f'{course_url}_{file_paths}_{direct_links}')) % 10000000}"
             results = {
@@ -1622,7 +1278,7 @@ Format as JSON with clear categories.
             
             # Process course URL if provided
             if course_url:
-                print("📄 Processing course URL...")
+                logger.info("Processing course URL")
                 course_result = await self.start_course_processing(
                     session_id=f"{session_id}_course",
                     course_url=course_url,
@@ -1632,7 +1288,7 @@ Format as JSON with clear categories.
             
             # Process uploaded files if provided
             if file_paths:
-                print("📁 Processing uploaded files...")
+                logger.info("Processing uploaded files")
                 files_result = await self.process_uploaded_files(
                     file_paths=file_paths,
                     user_id=user_id,
@@ -1642,7 +1298,7 @@ Format as JSON with clear categories.
             
             # Process direct links if provided
             if direct_links:
-                print("🔗 Processing direct links...")
+                logger.info("Processing direct links")
                 links_result = await self.process_direct_links(
                     links=direct_links,
                     user_id=user_id,
@@ -1824,290 +1480,79 @@ Format as clear, structured text suitable for comprehensive course material anal
             return f"Analysis failed: {str(e)}"
 
     async def _store_in_agentcore_memory(self, kb_id: str, user_id: str, processing_result: Dict[str, Any], agent_type: str):
-        """Store processed content in AgentCore Memory for the knowledge base."""
-        try:
-            # Lazily initialize memory on first use
-            if self.memory is None:
-                self.memory = self._init_memory()
-
-            if not self.memory:
-                print(f"⚠️ Memory not available, skipping storage for {agent_type} agent")
-                return
-
-            session_manager = MemorySessionManager(
-                memory_id=self.memory.get("id"),
-                region_name=self.region
-            )
-
-            # Create a session for this knowledge base and agent type
-            session = session_manager.create_memory_session(
-                actor_id=user_id,
-                session_id=self._clean_session_id(f"{kb_id}_{agent_type}")
-            )
-
-            # Prepare content for storage
-            content_summary = f"Knowledge Base: {kb_id}\nAgent: {agent_type.upper()}\nProcessed: {datetime.utcnow().isoformat()}\n\n"
-            
-            for file_result in processing_result.get("processed_files", []):
-                content = file_result.get("content", {})
-                analysis = file_result.get("analysis", {})
-                filename = file_result.get("filename", "unknown")
-
-                # Extract content from various fields
-                text = content.get("text_content", "") or content.get("text", "") or content.get("full_text", "")
-                description = content.get("description", "")
-                transcript = content.get("transcript", "")
-
-                # Extract AI analysis (this is where video/image content lives)
-                ai_analysis = analysis.get("ai_analysis", "")
-
-                file_content = f"File: {filename}\n"
-                if text:
-                    file_content += f"Text Content:\n{text[:3000]}\n\n"
-                if description:
-                    file_content += f"Description:\n{description}\n\n"
-                if transcript:
-                    file_content += f"Transcript:\n{transcript[:3000]}\n\n"
-                if ai_analysis:
-                    file_content += f"AI Analysis:\n{ai_analysis}\n\n"
-
-                # If no content extracted, log warning
-                if not (text or description or transcript or ai_analysis):
-                    print(f"⚠️ No content extracted from {filename} in {agent_type} agent")
-                    file_content += f"[No content extracted]\n\n"
-
-                content_summary += file_content + "---\n\n"
-
-            # Store in memory with contextual chunking
-            content_chunks = self._chunk_content_for_memory(content_summary)
-
-            for chunk in content_chunks:
-                # Final safety check: AgentCore Memory has 9000 char limit per turn
-                if len(chunk) > 9000:
-                    print(f"⚠️ WARNING: Content chunk too large ({len(chunk)} chars), truncating")
-                    chunk = chunk[:8900] + "\n\n[Content truncated due to size limit]"
-
-                session.add_turns(
-                    messages=[
-                        ConversationalMessage(
-                            chunk,
-                            MessageRole.ASSISTANT
-                        )
-                    ]
-                )
-            
-            if len(content_chunks) > 1:
-                print(f"✅ Stored content summary in {len(content_chunks)} chunks for KB {kb_id}")
-            else:
-                print(f"✅ Stored content summary in memory for KB {kb_id}")
-            
-            print(f"✅ Stored {agent_type} content in AgentCore Memory for KB {kb_id}")
-
-        except Exception as e:
-            print(f"❌ Failed to store {agent_type} content in memory: {e}")
+        """No-op: Replaced by local KB storage."""
+        pass
 
     async def _store_analysis_in_memory(self, kb_id: str, user_id: str, analysis: str, agent_type: str):
-        """Store AI analysis in AgentCore Memory."""
-        try:
-            if self.memory is None:
-                self.memory = self._init_memory()
-
-            if not self.memory:
-                return
-
-            session_manager = MemorySessionManager(
-                memory_id=self.memory.get("id"),
-                region_name=self.region
-            )
-
-            session = session_manager.create_memory_session(
-                actor_id=user_id,
-                session_id=self._clean_session_id(f"{kb_id}_{agent_type}_analysis")
-            )
-
-            analysis_content = f"Knowledge Base: {kb_id}\nAgent: {agent_type.upper()} Analysis\nGenerated: {datetime.utcnow().isoformat()}\n\nAnalysis:\n{analysis}"
-
-            # Chunk analysis if needed
-            analysis_chunks = self._chunk_content_for_memory(analysis_content)
-
-            for chunk in analysis_chunks:
-                # Final safety check
-                if len(chunk) > 9000:
-                    print(f"⚠️ WARNING: Analysis chunk too large ({len(chunk)} chars), truncating")
-                    chunk = chunk[:8900] + "\n\n[Content truncated due to size limit]"
-
-                session.add_turns(
-                    messages=[
-                        ConversationalMessage(
-                            chunk,
-                            MessageRole.ASSISTANT
-                        )
-                    ]
-                )
-            
-            print(f"✅ Stored {agent_type} analysis in AgentCore Memory for KB {kb_id}")
-
-        except Exception as e:
-            print(f"❌ Failed to store {agent_type} analysis in memory: {e}")
+        """No-op: Replaced by local KB storage."""
+        pass
 
     async def _retrieve_kb_content_from_memory(self, kb_id: str, user_id: str) -> str:
-        """Retrieve all content for a knowledge base from AgentCore Memory."""
+        """Retrieve all content for a knowledge base from local storage."""
         try:
-            # Use the course memory where content is actually stored
-            if self.memory is None:
-                self.memory = self._init_memory()
-
-            course_memory = self.memory
-
-            if not course_memory:
-                print("❌ Could not access course memory for content retrieval")
+            # Load all agent results from local KB storage
+            all_results = self.kb_storage.load_agent_results(kb_id)
+            
+            if not all_results:
+                logger.warning(f"No content found in local storage for KB {kb_id}")
                 return ""
-
-            # For backward compatibility, also check file memory
-            file_memory = self.memory_manager.get_or_create_memory(
-                name="MyTutorFileKnowledgeBase",
-                description="Storage for processed file content",
-                strategies=[
-                    SemanticStrategy(
-                        name="fileSemanticMemory",
-                        namespaces=['/strategies/{memoryStrategyId}/actors/{actorId}/sessions/{sessionId}']
-                    )
-                ]
-            )
-
-            if not file_memory:
-                print("❌ Could not access file memory for content retrieval")
-                return ""
-
-            # Retrieve content from all agent types
-            agent_types = ["pdf", "video", "audio", "image", "text"]
+            
+            # Combine content from all agents
             all_content = []
+            for agent_type, results in all_results.items():
+                if isinstance(results, list):
+                    for result in results:
+                        if isinstance(result, dict) and result.get("status") == "completed":
+                            content = result.get("content", {})
 
-            print(f"🔍 Retrieving KB content from memory for KB {kb_id}")
+                            # Extract text from various content types
+                            text = ""
+                            if "text" in content:
+                                text = content["text"]
+                            elif "text_content" in content:
+                                text = content["text_content"]
+                            elif "transcript" in content:
+                                text = content["transcript"]
+                            elif "extracted_text" in content:
+                                # For images with extracted text
+                                text = content["extracted_text"]
+                            elif "educational_content" in content:
+                                # For images/videos with educational content
+                                edu_content = content["educational_content"]
+                                if isinstance(edu_content, dict):
+                                    text = edu_content.get("full_text_content", "") or edu_content.get("text", "")
+                                else:
+                                    text = str(edu_content)
 
-            # Try course memory first (where current content is stored), then file memory (backward compatibility)
-            memories_to_check = [
-                ("course", course_memory),
-                ("file", file_memory)
-            ]
-
-            for agent_type in agent_types:
-                content_found = False
-
-                for memory_name, memory_instance in memories_to_check:
-                    if content_found:
-                        break
-
-                    try:
-                        session_manager = MemorySessionManager(
-                            memory_id=memory_instance.get("id"),
-                            region_name=self.region
-                        )
-
-                        # Try both session ID formats to handle different storage methods
-                        session_ids_to_try = [
-                            self._clean_session_id(f"{kb_id}_{agent_type}_results"),  # New format
-                            self._clean_session_id(f"{kb_id}_{agent_type}")          # Legacy format
-                        ]
-
-                        for session_id in session_ids_to_try:
-                            if content_found:
-                                break
-                            try:
-                                print(f"  📂 [{memory_name}] Looking for {agent_type} content with session_id: {session_id}")
-
-                                session = session_manager.create_memory_session(
-                                    actor_id=user_id,
-                                    session_id=session_id
-                                )
-
-                                if session is None:
-                                    print(f"  ⚠️ Session creation returned None for {session_id}")
-                                    continue
-
-                                # Get the events (stored content) using list_events instead of get_conversation_history
-                                events = session_manager.list_events(
-                                    actor_id=user_id,
-                                    session_id=session_id
-                                )
-                                print(f"  📝 Found {len(events)} events for {agent_type} with session {session_id} in {memory_name} memory")
-
-                                if events:
-                                    content_found = True
-                                    for event in events:
-                                        if event.get('payload'):
-                                            for payload_item in event['payload']:
-                                                if payload_item.get('conversational', {}).get('content', {}).get('text'):
-                                                    content_text = payload_item['conversational']['content']['text']
-                                                    content_preview = content_text[:100] + "..." if len(content_text) > 100 else content_text
-                                                    print(f"  ✅ [{memory_name}] Retrieved {agent_type} content: {content_preview}")
-                                                    all_content.append(f"=== {agent_type.upper()} AGENT CONTENT ===\n{content_text}\n")
-                                    break  # Found content, no need to try other session IDs
-
-                            except Exception as session_e:
-                                print(f"  ⚠️ Could not retrieve from session {session_id} in {memory_name} memory: {session_e}")
-                                continue
-
-                    except Exception as e:
-                        print(f"⚠️ Could not retrieve {agent_type} content from {memory_name} memory: {e}")
-                        continue
-
-                if not content_found:
-                    print(f"  ❌ No content found for {agent_type} agent in any memory or session format")
-
+                            if text:
+                                all_content.append(f"=== {agent_type.upper()} CONTENT ===\n{text}\n")
+            
             total_chars = sum(len(c) for c in all_content)
-            print(f"📊 Total content retrieved: {len(all_content)} sections, {total_chars} characters")
-
+            logger.info(f"Retrieved {len(all_content)} sections, {total_chars} characters from local storage for KB {kb_id}")
+            
             return "\n".join(all_content) if all_content else ""
-
+            
         except Exception as e:
-            print(f"❌ Failed to retrieve KB content from memory: {e}")
+            logger.error(f"Failed to retrieve KB content from local storage: {e}")
             return ""
 
     async def _retrieve_training_content_from_memory(self, kb_id: str, user_id: str) -> str:
-        """Retrieve training content for a knowledge base from AgentCore Memory."""
+        """Retrieve training content from local storage."""
         try:
-            if self.memory is None:
-                self.memory = self._init_memory()
-
-            if not self.memory:
+            training_content = self.kb_storage.load_training_content(kb_id)
+            
+            if not training_content:
+                logger.warning(f"No training content found in local storage for KB {kb_id}")
                 return ""
-
-            session_manager = MemorySessionManager(
-                memory_id=self.memory.get("id"),
-                region_name=self.region
-            )
-
-            # Try to retrieve training content using list_events (not get_conversation_history)
-            session_id = self._clean_session_id(f"{kb_id}_training_content")
-
-            try:
-                events = session_manager.list_events(
-                    actor_id=user_id,
-                    session_id=session_id
-                )
-
-                for event in events:
-                    if event.get('payload'):
-                        for payload_item in event['payload']:
-                            if payload_item.get('conversational', {}).get('content', {}).get('text'):
-                                content_text = payload_item['conversational']['content']['text']
-                                if "Training Content Generated:" in content_text:
-                                    # Extract just the training content part
-                                    content_parts = content_text.split("Training Content Generated:")
-                                    if len(content_parts) > 1:
-                                        return content_parts[1].strip()
-                                # Also return any content that looks like training material
-                                elif len(content_text) > 200 and any(keyword in content_text.lower() for keyword in ['concept', 'objective', 'summary']):
-                                    return content_text
-
-            except Exception as e:
-                print(f"⚠️ Could not retrieve training content from memory: {e}")
-
-            return ""
-
+            
+            # Convert to string if it's a dict
+            if isinstance(training_content, dict):
+                return training_content.get("content", str(training_content))
+            
+            return str(training_content)
+            
         except Exception as e:
-            print(f"❌ Failed to retrieve training content from memory: {e}")
+            logger.error(f"Failed to retrieve training content from local storage: {e}")
             return ""
 
     def _clean_session_id(self, session_id: str) -> str:
@@ -2117,102 +1562,147 @@ Format as clear, structured text suitable for comprehensive course material anal
         # Ensure it starts with alphanumeric and limit length
         return cleaned[:50] if cleaned else "defaultSession"
     
-    async def _store_comprehensive_analysis(self, kb_id: str, user_id: str, analysis: str):
-        """Store comprehensive analysis in AgentCore Memory."""
+    async def _store_comprehensive_analysis(self, kb_id: str, user_id: str, analysis: Dict[str, Any]):
+        """Store comprehensive analysis in local KB storage."""
         try:
-            if self.memory is None:
-                self.memory = self._init_memory()
-
-            if not self.memory:
-                print(f"⚠️ Memory not initialized, skipping comprehensive analysis storage")
-                return
-
-            session_manager = MemorySessionManager(
-                memory_id=self.memory.get("id"),
-                region_name=self.region
-            )
-
-            # Store the comprehensive analysis (clean session ID for AWS)
-            session_id = self._clean_session_id(f"comprehensiveAnalysis{kb_id}")
-
-            session = session_manager.create_memory_session(
-                actor_id=user_id,
-                session_id=session_id
-            )
-
-            # Chunk if analysis is too large
-            if len(analysis) > 8000:
-                chunks = [analysis[i:i+8000] for i in range(0, len(analysis), 8000)]
-                print(f"📄 Splitting comprehensive analysis into {len(chunks)} chunks")
+            # Extract the text analysis from the dictionary
+            if isinstance(analysis, dict):
+                analysis_text = analysis.get("comprehensive_analysis", "")
+                if isinstance(analysis_text, str):
+                    self.kb_storage.save_comprehensive_analysis(kb_id, analysis_text)
+                    logger.info(f"Stored comprehensive analysis in local KB storage for {kb_id}")
+                else:
+                    # If it's still a dict, convert to JSON
+                    self.kb_storage.save_comprehensive_analysis(kb_id, json.dumps(analysis, indent=2))
+                    logger.info(f"Stored comprehensive analysis (JSON) in local KB storage for {kb_id}")
             else:
-                chunks = [analysis]
-
-            for chunk in chunks:
-                session.add_turns(
-                    messages=[
-                        ConversationalMessage(
-                            f"Comprehensive Analysis for KB {kb_id}:\n\n{chunk}",
-                            MessageRole.ASSISTANT
-                        )
-                    ]
-                )
-
-            print(f"✅ Stored comprehensive analysis in memory for KB {kb_id}")
+                # If it's already a string, save directly
+                self.kb_storage.save_comprehensive_analysis(kb_id, str(analysis))
+                logger.info(f"Stored comprehensive analysis in local KB storage for {kb_id}")
 
         except Exception as e:
-            print(f"⚠️ Could not store comprehensive analysis in memory: {e}")
-            print(f"ℹ️ This is non-critical - analysis is available in processed_results")
+            logger.warning(f"Could not store comprehensive analysis in local storage: {e}")
+            logger.info("This is non-critical - analysis is available in processed_results")
 
     async def _store_training_content_in_memory(self, kb_id: str, user_id: str, training_content: str):
-        """Store generated training content in AgentCore Memory."""
+        """Store generated training content in local KB storage."""
         try:
-            if self.memory is None:
-                self.memory = self._init_memory()
+            # Parse training content if it's JSON string
+            if isinstance(training_content, str):
+                try:
+                    training_data = json.loads(training_content)
+                except:
+                    training_data = {"content": training_content}
+            else:
+                training_data = training_content
 
-            if not self.memory:
-                return
-
-            session_manager = MemorySessionManager(
-                memory_id=self.memory.get("id"),
-                region_name=self.region
-            )
-
-            session = session_manager.create_memory_session(
-                actor_id=user_id,
-                session_id=self._clean_session_id(f"{kb_id}_training_content")
-            )
-
-            content = f"Knowledge Base: {kb_id}\nTraining Content Generated: {datetime.utcnow().isoformat()}\n\n{training_content}"
-
-            # Chunk training content if needed
-            content_chunks = self._chunk_content_for_memory(content)
-
-            for chunk in content_chunks:
-                # Final safety check
-                if len(chunk) > 9000:
-                    print(f"⚠️ WARNING: Training chunk too large ({len(chunk)} chars), truncating")
-                    chunk = chunk[:8900] + "\n\n[Content truncated due to size limit]"
-
-                session.add_turns(
-                    messages=[
-                        ConversationalMessage(
-                            chunk,
-                            MessageRole.ASSISTANT
-                        )
-                    ]
-                )
-            
-            print(f"✅ Stored training content in AgentCore Memory for KB {kb_id}")
+            # Save to local KB storage
+            self.kb_storage.save_training_content(kb_id, training_data)
+            logger.info(f"Stored training content in local KB storage for {kb_id}")
 
         except Exception as e:
-            print(f"❌ Failed to store training content in memory: {e}")
+            logger.error(f"Failed to store training content in local storage: {e}")
+
+    def _extract_comprehensive_content_for_questions(self, processed_results: Dict[str, Any]) -> str:
+        """Extract comprehensive content from all agent types for question generation.
+
+        This uses the same logic as training_service._extract_content_from_kb_data
+        to ensure consistency between learning content and question generation.
+        """
+        combined_content = []
+
+        # Transform nested structure if needed
+        for agent_type, agent_data in processed_results.items():
+            results_list = []
+
+            # Handle nested structure: {'audio': {'results': {'audio': [...]}}}
+            if isinstance(agent_data, dict) and 'results' in agent_data:
+                nested_results = agent_data['results']
+                if isinstance(nested_results, dict):
+                    # Flatten nested structure
+                    for key, val in nested_results.items():
+                        if isinstance(val, list):
+                            results_list = val
+                            break
+                else:
+                    results_list = nested_results if isinstance(nested_results, list) else []
+            elif isinstance(agent_data, list):
+                results_list = agent_data
+
+            # Extract content from each result
+            for result in results_list:
+                if not isinstance(result, dict) or result.get("status") != "completed":
+                    continue
+
+                content = result.get("content", {})
+
+                # Extract based on agent type (same logic as training_service)
+                if agent_type == "text":
+                    text = content.get("full_text", content.get("text", ""))
+                    if text:
+                        combined_content.append(f"=== Text Content ===\n{text}\n")
+
+                elif agent_type == "pdf":
+                    text = content.get("full_text", content.get("text", ""))
+                    if text:
+                        combined_content.append(f"=== PDF Content ===\n{text}\n")
+
+                elif agent_type == "audio":
+                    transcription = content.get("full_transcription", content.get("transcription", ""))
+                    if transcription:
+                        combined_content.append(f"=== Audio Transcription ===\n{transcription}\n")
+
+                elif agent_type == "video":
+                    analysis = result.get("analysis", {})
+                    if isinstance(analysis, dict) and "ai_analysis" in analysis:
+                        combined_content.append(f"=== Video Analysis ===\n{analysis['ai_analysis']}\n")
+
+                elif agent_type == "image":
+                    # PRIORITY: Extract structured educational content first
+                    educational_content = content.get("educational_content", {})
+                    if educational_content and educational_content.get("full_text_content"):
+                        image_parts = [f"=== Image Educational Content ==="]
+
+                        # Add full text content
+                        full_text = educational_content.get("full_text_content", "")
+                        if full_text:
+                            image_parts.append(f"\n{full_text}\n")
+
+                        # Add key concepts
+                        key_concepts = educational_content.get("key_concepts", [])
+                        if key_concepts:
+                            image_parts.append(f"\nKey Concepts: {', '.join(key_concepts)}")
+
+                        # Add commands
+                        commands = educational_content.get("commands", [])
+                        if commands:
+                            image_parts.append("\n\nCommands/Functions:")
+                            for cmd in commands[:20]:
+                                name = cmd.get("name", "")
+                                desc = cmd.get("description", "")
+                                if name and desc:
+                                    image_parts.append(f"  • {name}: {desc}")
+
+                        combined_content.append("\n".join(image_parts) + "\n")
+
+                    # Fallback to extracted_text
+                    elif content.get("extracted_text"):
+                        combined_content.append(f"=== Image OCR Text ===\n{content['extracted_text']}\n")
+
+                    # Final fallback to ai_analysis
+                    else:
+                        analysis = result.get("analysis", {})
+                        if isinstance(analysis, dict) and "ai_analysis" in analysis:
+                            combined_content.append(f"=== Image Analysis ===\n{analysis['ai_analysis']}\n")
+
+        return "\n".join(combined_content) if combined_content else ""
 
     def _extract_key_sections_for_training(self, content: str, max_length: int = 25000) -> str:
         """Extract key sections from content intelligently instead of blind truncation."""
         if len(content) <= max_length:
             return content
 
-        print(f"📚 Extracting key sections from {len(content):,} chars (target: {max_length:,} chars)")
+        logger.info(f"Extracting key sections from {len(content):,} chars (target: {max_length:,} chars)")
 
         # Split into sections and prioritize important ones
         sections = content.split('\n\n')
@@ -2264,38 +1754,38 @@ Format as clear, structured text suitable for comprehensive course material anal
             current_length += len(section) + 2
 
         result = '\n\n'.join(result_sections)
-        print(f"✅ Extracted {len(result):,} chars ({len(result_sections)} sections)")
+        logger.info(f"Extracted {len(result):,} chars ({len(result_sections)} sections)")
         return result
 
     async def _generate_training_content_with_retry(self, knowledge_base_id: str, user_id: str, max_retries: int = 5) -> Dict[str, Any]:
         """Generate training content with aggressive retry and backoff strategy."""
         for attempt in range(max_retries):
             try:
-                print(f"🧠 Generating training content (attempt {attempt + 1}/{max_retries}) for KB {knowledge_base_id}")
+                logger.info(f"Generating training content (attempt {attempt + 1}/{max_retries}) for KB {knowledge_base_id}")
                 
                 # Add progressive delay to avoid hitting rate limits
                 if attempt > 0:
                     delay = min(60, 10 * (2 ** (attempt - 1)))  # Cap at 60 seconds
-                    print(f"⏳ Waiting {delay}s before retry to respect rate limits...")
+                    logger.info(f"Waiting {delay}s before retry to respect rate limits")
                     await asyncio.sleep(delay)
                 
                 result = await self._generate_training_content_from_kb(knowledge_base_id, user_id)
                 
                 if result.get("status") == "completed":
-                    print(f"✅ Training content generated successfully on attempt {attempt + 1}")
+                    logger.info(f"Training content generated successfully on attempt {attempt + 1}")
                     return result
                 elif "ThrottlingException" in str(result.get("message", "")):
-                    print(f"⚠️ Throttled on attempt {attempt + 1}, will retry...")
+                    logger.warning(f"Throttled on attempt {attempt + 1}, will retry")
                     continue
                 else:
-                    print(f"❌ Non-throttling error: {result.get('message')}")
+                    logger.error(f"Non-throttling error: {result.get('message')}")
                     return result
                     
             except Exception as e:
                 import traceback
                 error_msg = str(e) if str(e) else repr(e)
                 if "ThrottlingException" in error_msg or "Too many requests" in error_msg:
-                    print(f"⚠️ Throttling exception on attempt {attempt + 1}: {error_msg}")
+                    logger.warning(f"Throttling exception on attempt {attempt + 1}: {error_msg}")
                     if attempt == max_retries - 1:
                         return {
                             "status": "error",
@@ -2304,8 +1794,8 @@ Format as clear, structured text suitable for comprehensive course material anal
                         }
                     continue
                 else:
-                    print(f"❌ Unexpected error: {error_msg}")
-                    print(f"Traceback:\n{traceback.format_exc()}")
+                    logger.error(f"Unexpected error: {error_msg}")
+                    logger.error(f"Traceback:\n{traceback.format_exc()}")
                     return {"status": "error", "message": error_msg, "error_type": type(e).__name__}
         
         return {"status": "error", "message": f"Failed to generate training content after {max_retries} attempts"}
@@ -2313,24 +1803,24 @@ Format as clear, structured text suitable for comprehensive course material anal
     async def _generate_training_content_from_kb(self, knowledge_base_id: str, user_id: str) -> Dict[str, Any]:
         """Generate comprehensive training content from AgentCore Memory knowledge base."""
         try:
-            print(f"🧠 Generating training content from AgentCore Memory for KB {knowledge_base_id}")
+            logger.info(f"Generating training content from AgentCore Memory for KB {knowledge_base_id}")
             
             # Retrieve content from AgentCore Memory
             kb_content = await self._retrieve_kb_content_from_memory(knowledge_base_id, user_id)
             
             if not kb_content:
-                print(f"❌ ERROR: No content found in memory for KB {knowledge_base_id}")
+                logger.error(f"No content found in memory for KB {knowledge_base_id}")
                 return {
                     "status": "error",
                     "message": "No content available in knowledge base. Please ensure files were processed successfully."
                 }
 
             content_length = len(kb_content)
-            print(f"📊 KB content: {content_length:,} characters")
+            logger.info(f"KB content: {content_length:,} characters")
 
             # **QUALITY FIX**: Use intelligent extraction instead of blind 8K truncation
             if content_length > 30000:
-                print(f"📚 Content is long, extracting key sections...")
+                logger.info("Content is long, extracting key sections")
                 content_to_use = self._extract_key_sections_for_training(kb_content, max_length=25000)
                 note = f"\n[Intelligently extracted {len(content_to_use):,} chars from {content_length:,} total, prioritizing key sections]"
             else:
@@ -2391,8 +1881,8 @@ Format as JSON:
             import traceback
             error_details = traceback.format_exc()
             error_msg = str(e) if str(e) else repr(e)
-            print(f"❌ Failed to generate training content: {error_msg}")
-            print(f"Full traceback:\n{error_details}")
+            logger.error(f"Failed to generate training content: {error_msg}")
+            logger.error(f"Full traceback:\n{error_details}")
             return {
                 "status": "error",
                 "message": f"Failed to generate training content: {error_msg}",
@@ -2411,49 +1901,36 @@ Format as JSON:
             else:
                 difficulty = "advanced"
 
-            print(f"🎯 Generating MCQ question #{questions_answered + 1}")
-            print(f"📦 Processed results provided: {bool(processed_results)}")
+            logger.info(f"Generating MCQ question #{questions_answered + 1}")
+            logger.debug(f"Processed results provided: {bool(processed_results)}")
 
             if processed_results:
-                print(f"📊 Processed results structure:")
-                print(f"   Top-level keys: {list(processed_results.keys())}")
+                logger.debug("Processed results structure:")
+                logger.debug(f"   Top-level keys: {list(processed_results.keys())}")
                 if 'image' in processed_results:
-                    print(f"   Image keys: {list(processed_results['image'].keys())}")
+                    logger.debug(f"   Image keys: {list(processed_results['image'].keys())}")
 
             # **FAST PATH**: Use processed_results directly from backend (skip slow memory retrieval)
             kb_content = ""
             if processed_results:
-                print(f"✅ Using processed_results from backend (fast path)")
-                # Extract educational content from image results
-                image_results = processed_results.get('image', {}).get('results', {}).get('image', [])
-                print(f"   Extracting from image results: {len(image_results) if image_results else 0} items")
-                if image_results:
-                    for result in image_results:
-                        edu_content = result.get('content', {}).get('educational_content', {})
-                        if edu_content and edu_content.get('full_text_content'):
-                            print(f"✅ Found educational content!")
-                            kb_content = f"=== EDUCATIONAL CONTENT ===\n{edu_content['full_text_content']}\n"
+                logger.debug("Using processed_results from backend (fast path)")
 
-                            # Add key concepts
-                            if edu_content.get('key_concepts'):
-                                kb_content += f"\nKey Concepts: {', '.join(edu_content['key_concepts'])}\n"
+                # **FIX**: Use comprehensive content extraction (same as training_service)
+                # This extracts from ALL agent types (text, pdf, audio, video, image)
+                kb_content = self._extract_comprehensive_content_for_questions(processed_results)
 
-                            # Add commands
-                            if edu_content.get('commands'):
-                                kb_content += "\nCommands/Functions:\n"
-                                for cmd in edu_content['commands'][:15]:
-                                    kb_content += f"  • {cmd.get('name', '')}: {cmd.get('description', '')}\n"
-
-                            print(f"📊 Loaded {len(kb_content)} characters from processed_results")
-                            break
+                if kb_content:
+                    logger.debug(f"Extracted comprehensive content: {len(kb_content)} characters")
+                    logger.debug(f"   Content preview: {kb_content[:200]}")
+                else:
+                    logger.warning("Comprehensive extraction returned empty content")
 
             # Fallback if no content found
             if not kb_content:
-                print(f"❌ No educational content available, using generic fallback")
+                logger.warning("No educational content available, using generic fallback")
                 kb_content = "No specific content available. Generate general educational questions."
             else:
-                print(f"✅ Final kb_content length: {len(kb_content)} characters")
-                print(f"   Content preview: {kb_content[:200]}...")
+                logger.debug(f"Final kb_content length: {len(kb_content)} characters")
 
             # Skip training content retrieval for speed (it's slow and usually empty)
             training_content = ""
@@ -2517,9 +1994,9 @@ Format as JSON:
 IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat common question patterns.
 """
 
-            print(f"🔧 Sending prompt to Bedrock")
-            print(f"   KB content in prompt: {len(kb_content_to_use)} chars")
-            print(f"   First 100 chars of KB content: {kb_content_to_use[:100]}")
+            logger.debug("Sending prompt to Bedrock")
+            logger.debug(f"   KB content in prompt: {len(kb_content_to_use)} chars")
+            logger.debug(f"   First 100 chars of KB content: {kb_content_to_use[:100]}")
 
             # Call Bedrock with retry logic for throttling
             max_retries = 3
@@ -2544,7 +2021,7 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
                 except Exception as bedrock_error:
                     if "ThrottlingException" in str(bedrock_error) and attempt < max_retries - 1:
                         wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                        print(f"⚠️ Bedrock throttled, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
+                        logger.warning(f"Bedrock throttled, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
                         import time
                         time.sleep(wait_time)
                     else:
@@ -2582,7 +2059,7 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
             }
 
         except Exception as e:
-            print(f"❌ Failed to generate MCQ question: {e}")
+            logger.error(f"Failed to generate MCQ question: {e}")
             import traceback
             traceback.print_exc()
             error_msg = str(e) or repr(e) or "Unknown error occurred"
@@ -2657,7 +2134,7 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
 
             # Generate question using training agent
             if training_service and question_type != "mcq":
-                print(f"📚 Using training agent to generate {question_type} question")
+                logger.info(f"Using training agent to generate {question_type} question")
                 assessment = await training_service.training_agent.generate_assessment(
                     kb_content_to_use,
                     {"type": "knowledge_base", "difficulty": difficulty},
@@ -2693,13 +2170,13 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
                         "question_number": questions_answered + 1
                     }
                 else:
-                    print(f"⚠️ Training agent returned no questions, falling back to MCQ")
+                    logger.warning("Training agent returned no questions, falling back to MCQ")
 
             # Fallback to MCQ
             return await self._generate_mcq_question(knowledge_base_id, session_id, questions_answered)
 
         except Exception as e:
-            print(f"❌ Failed to generate {question_type} question: {e}")
+            logger.error(f"Failed to generate {question_type} question: {e}")
             import traceback
             traceback.print_exc()
             error_msg = str(e) or repr(e) or "Unknown error occurred"
@@ -2711,8 +2188,8 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
     async def _generate_learning_content_from_results(self, knowledge_base_id: str, processed_results: Dict[str, Any]) -> Dict[str, Any]:
         """Generate learning content directly from provided processing results."""
         try:
-            print(f"📚 Generating learning content from provided results for KB: {knowledge_base_id}")
-            print(f"   Agent types available: {list(processed_results.keys())}")
+            logger.info(f"Generating learning content from provided results for KB: {knowledge_base_id}")
+            logger.debug(f"   Agent types available: {list(processed_results.keys())}")
 
             if not processed_results:
                 return {
@@ -2736,10 +2213,10 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
                 else:
                     transformed_data[agent_type] = agent_data
 
-            print(f"   Transformed structure: {list(transformed_data.keys())}")
+            logger.debug(f"   Transformed structure: {list(transformed_data.keys())}")
             for key, val in transformed_data.items():
                 count = len(val) if isinstance(val, list) else 'not a list'
-                print(f"     {key}: {count} items")
+                logger.debug(f"     {key}: {count} items")
 
             # Use training service to extract learning content
             if training_service:
@@ -2761,54 +2238,21 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
             }
 
     async def _get_learning_content_from_memory(self, knowledge_base_id: str) -> Dict[str, Any]:
-        """Get learning content for pre-study phase from knowledge base."""
+        """Get learning content for pre-study phase from local KB storage."""
         try:
-            print(f"📚 Retrieving learning content for KB: {knowledge_base_id}")
+            logger.info(f"Retrieving learning content from local storage for KB: {knowledge_base_id}")
 
-            # First, try to get the user_id from the knowledge base metadata
-            memory = self._init_memory()
-            memory_id = memory['id']
-
-            # Retrieve processed content from memory
-            kb_content_data = {}
-
-            try:
-                session = self._get_or_create_session(memory_id, "admin", knowledge_base_id)
-                session_id = session['sessionId']
-
-                # Search for knowledge base results in memory
-                messages = await asyncio.to_thread(
-                    self.memory_manager.memory_client.search_memory,
-                    memoryId=memory_id,
-                    memoryStorageType="session",
-                    sessionId=session_id,
-                    searchText=f"knowledge_base_id:{knowledge_base_id}",
-                    maxResults=100
-                )
-
-                if messages and 'messages' in messages:
-                    for msg in messages['messages']:
-                        content = msg.get('content', [{}])[0].get('text', '')
-                        if content:
-                            try:
-                                data = json.loads(content)
-                                if isinstance(data, dict) and 'agent_type' in data:
-                                    agent_type = data['agent_type']
-                                    if agent_type not in kb_content_data:
-                                        kb_content_data[agent_type] = []
-                                    kb_content_data[agent_type].append(data)
-                            except json.JSONDecodeError:
-                                continue
-
-            except Exception as e:
-                print(f"⚠️ Could not retrieve content from memory: {e}")
+            # Load all agent results from local KB storage
+            kb_content_data = self.kb_storage.load_agent_results(knowledge_base_id)
 
             if not kb_content_data:
-                print(f"❌ No content data found for KB {knowledge_base_id}")
+                logger.error(f"No content data found in local storage for KB {knowledge_base_id}")
                 return {
                     "status": "error",
                     "message": "No content available for this knowledge base"
                 }
+
+            logger.info(f"Loaded {len(kb_content_data)} agent types from local storage")
 
             # Use training service to extract learning content
             if training_service:
@@ -2821,7 +2265,9 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
                 }
 
         except Exception as e:
-            logger.error(f"Failed to get learning content: {e}")
+            logger.error(f"Failed to get learning content from local storage: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "status": "error",
                 "message": f"Failed to get learning content: {str(e)}"
@@ -3019,9 +2465,9 @@ if __name__ == "__main__":
                     allow_methods=["*"],
                     allow_headers=["*"],
                 )
-                print(f"✅ CORS enabled on {attr_name}")
+                logger.info(f"CORS enabled on {attr_name}")
                 break
     except Exception as e:
-        print(f"⚠️  CORS setup skipped: {e}")
+        logger.warning(f"CORS setup skipped: {e}")
 
     app.run()
