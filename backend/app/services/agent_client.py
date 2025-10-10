@@ -836,9 +836,15 @@ class AgentClient:
             # Include processed_results if provided
             if processed_results:
                 payload["processed_results"] = processed_results
+                print(f"🔍 BACKEND: Sending processed_results with keys: {list(processed_results.keys())}")
+                if 'image' in processed_results:
+                    print(f"🔍 BACKEND: Image results has keys: {list(processed_results['image'].keys())}")
+            else:
+                print(f"⚠️ BACKEND: No processed_results to send!")
 
             # Use longer timeout for question generation (Bedrock API can be slow)
             async with httpx.AsyncClient(timeout=90.0) as client:
+                print(f"🔍 BACKEND: Posting to agent with payload keys: {list(payload.keys())}")
                 response = await client.post(
                     f"{self.agent_url}/invocations",
                     json=payload

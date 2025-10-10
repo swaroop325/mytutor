@@ -940,10 +940,15 @@ Create educational questions that test understanding of the key concepts.
 Format as JSON array with question, answer, explanation, difficulty, and topic fields.
 """
     
-    def _parse_generated_questions(self, questions_text: str, question_type: str, 
+    def _parse_generated_questions(self, questions_text: str, question_type: str,
                                  analysis: Dict[str, Any]) -> List[AssessmentQuestion]:
         """Parse generated questions from AI response."""
         try:
+            # Clean response text of control characters (same as extract_learning_content)
+            import re
+            # Remove control characters except newline, tab, carriage return
+            questions_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', questions_text)
+
             # Try to extract JSON from the response
             questions_data = json.loads(questions_text)
             

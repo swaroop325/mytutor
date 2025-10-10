@@ -11,9 +11,13 @@ import json
 import re
 import threading
 import uuid
+import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from bedrock_agentcore import BedrockAgentCoreApp
+
+# Configure logging
+logger = logging.getLogger(__name__)
 from bedrock_agentcore.tools.browser_client import BrowserClient
 from bedrock_agentcore.memory.session import MemorySessionManager
 from bedrock_agentcore.memory.constants import ConversationalMessage, MessageRole
@@ -2590,8 +2594,13 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
     async def _generate_enhanced_question(self, knowledge_base_id: str, session_id: str, question_type: str, questions_answered: int, processed_results: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate a question of specified type (mcq, open_ended, fill_blank, etc.) based on actual KB content."""
         try:
-            print(f"🎯 Generating {question_type} question #{questions_answered + 1}")
-            print(f"📦 Processed results provided: {bool(processed_results)}")
+            logger.info("="*80)
+            logger.info("🚀 ENHANCED QUESTION GENERATION STARTED")
+            logger.info(f"🎯 Question type: {question_type} | Question #{questions_answered + 1}")
+            logger.info(f"📦 Processed results received: {processed_results is not None}")
+            if processed_results:
+                logger.info(f"📦 Processed results keys: {list(processed_results.keys())}")
+            logger.info("="*80)
 
             # Determine difficulty
             if questions_answered < 5:
@@ -2602,20 +2611,21 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
                 difficulty = "advanced"
 
             # **FAST PATH**: Skip slow memory retrieval, use processed_results directly
-            print(f"📦 Processed results provided: {bool(processed_results)}")
+            logger.info(f"📦 Processed results provided: {bool(processed_results)}")
 
             kb_content = ""
             if processed_results:
-                print(f"✅ Using processed_results from backend (fast path)")
+                logger.info("✅ Using processed_results from backend (fast path)")
                 # Extract educational content from processed_results
                 if processed_results:
                     # Extract educational content from image results
                     image_results = processed_results.get('image', {}).get('results', {}).get('image', [])
+                    logger.info(f"📊 Found {len(image_results) if image_results else 0} image results")
                     if image_results:
                         for result in image_results:
                             edu_content = result.get('content', {}).get('educational_content', {})
                             if edu_content and edu_content.get('full_text_content'):
-                                print(f"✅ Found educational content in processed_results!")
+                                logger.info("✅ Found educational content in processed_results!")
                                 kb_content = f"=== EDUCATIONAL CONTENT ===\n{edu_content['full_text_content']}\n"
 
                                 # Add key concepts
@@ -2628,12 +2638,14 @@ IMPORTANT: Generate a UNIQUE question. Focus on {focus_area}. Do not repeat comm
                                     for cmd in edu_content['commands'][:15]:
                                         kb_content += f"  • {cmd.get('name', '')}: {cmd.get('description', '')}\n"
 
-                                print(f"📊 Loaded {len(kb_content)} characters from processed_results")
+                                logger.info(f"📊 Loaded {len(kb_content)} characters from processed_results")
                                 break
+                            else:
+                                logger.warning(f"⚠️ Image result missing educational_content or full_text_content")
 
                 # Final fallback if still no content
                 if not kb_content or len(kb_content) < 500:
-                    print(f"❌ No content available, falling back to MCQ")
+                    logger.warning(f"❌ No content available (len={len(kb_content)}), falling back to MCQ")
                     return await self._generate_mcq_question(knowledge_base_id, session_id, questions_answered)
 
             # Prepare content
@@ -2953,12 +2965,17 @@ def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
             return result
 
         elif action == "generate_enhanced_question":
+            logger.info("🔥 INVOKE HANDLER: generate_enhanced_question called")
             knowledge_base_id = payload.get("knowledge_base_id")
             session_id = payload.get("session_id")
             question_type = payload.get("question_type", "mcq")
             questions_answered = payload.get("questions_answered", 0)
             processed_results = payload.get("processed_results")  # Get processed_results from payload
+            logger.info(f"🔥 INVOKE HANDLER: processed_results present = {processed_results is not None}")
+            if processed_results:
+                logger.info(f"🔥 INVOKE HANDLER: processed_results keys = {list(processed_results.keys())}")
             result = asyncio.run(processor._generate_enhanced_question(knowledge_base_id, session_id, question_type, questions_answered, processed_results))
+            logger.info("🔥 INVOKE HANDLER: Returning result")
             return result
 
         elif action == "get_learning_content":

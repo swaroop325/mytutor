@@ -49,6 +49,15 @@ kill_port 5173  # Frontend
 echo -e "${GREEN}✅ All ports ready${NC}"
 echo ""
 
+# Clear Python bytecode cache to ensure fresh code loads
+echo -e "${CYAN}🧹 Clearing Python bytecode cache...${NC}"
+find agent -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find agent -name "*.pyc" -delete 2>/dev/null || true
+find backend -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find backend -name "*.pyc" -delete 2>/dev/null || true
+echo -e "${GREEN}✅ Python cache cleared${NC}"
+echo ""
+
 # Create logs directory
 mkdir -p logs
 
@@ -75,7 +84,7 @@ if [ ! -f ".env" ]; then
     echo -e "${RED}   ⚠️  Please update agent/.env with your AWS credentials!${NC}"
 fi
 
-python full_course_processor.py > ../logs/agent.log 2>&1 &
+python -u full_course_processor.py > ../logs/agent.log 2>&1 &
 AGENT_PID=$!
 echo -e "${GREEN}✅ AgentCore started (PID: $AGENT_PID)${NC}"
 cd ..
