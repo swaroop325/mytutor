@@ -1044,14 +1044,13 @@ Format as JSON.
                 await self._store_agent_results_in_memory(kb_id, user_id, result, agent_type)
 
             # Generate comprehensive analysis from all agent results
+            # Skip comprehensive analysis generation to avoid throttling
             if result.get("status") == "completed":
-                session["status"] = "analyzing"
-                analysis = await self._analyze_agent_results(result.get("results", {}))
-                result["comprehensive_analysis"] = analysis
-
-                # Store the comprehensive analysis in memory
-                if kb_id:
-                    await self._store_comprehensive_analysis(kb_id, user_id, analysis)
+                result["comprehensive_analysis"] = {
+                    "comprehensive_analysis": "Analysis skipped to avoid throttling",
+                    "content_summary": {},
+                    "processing_method": "skipped"
+                }
 
             # Store final results
             session["results"] = result
@@ -1097,14 +1096,14 @@ Format as JSON.
             if kb_id and result.get("status") == "completed":
                 await self._store_agent_results_in_memory(kb_id, user_id, result, agent_type)
 
-            # Generate comprehensive analysis from all agent results
+            # Skip comprehensive analysis generation to avoid throttling
+            # Analysis is not used anywhere and causes unnecessary Bedrock API calls
             if result.get("status") == "completed":
-                analysis = await self._analyze_agent_results(result.get("results", {}))
-                result["comprehensive_analysis"] = analysis
-
-                # Store the comprehensive analysis in memory
-                if kb_id:
-                    await self._store_comprehensive_analysis(kb_id, user_id, analysis)
+                result["comprehensive_analysis"] = {
+                    "comprehensive_analysis": "Analysis skipped to avoid throttling",
+                    "content_summary": {},
+                    "processing_method": "skipped"
+                }
 
             # Add knowledge base ID to result for caller reference
             result["kb_id"] = kb_id
@@ -1146,21 +1145,46 @@ Format as JSON.
             # Compile content from all agents
             all_analyses = []
             content_summary = {}
-            
+
             for agent_type, results in agent_results.items():
                 successful_results = [r for r in results if r.get('status') == 'completed']
                 content_summary[agent_type] = {
                     "files_processed": len(successful_results),
                     "total_files": len(results)
                 }
-                
+
                 for result in successful_results:
+                    content = result.get('content', {})
+
+                    # Extract actual content for comprehensive analysis
+                    content_text = ""
+                    if "text" in content and content["text"]:
+                        content_text = content["text"][:1000]  # First 1000 chars
+                    elif "text_content" in content and content["text_content"]:
+                        content_text = content["text_content"][:1000]
+                    elif "transcript" in content and content["transcript"]:
+                        content_text = content["transcript"][:1000]
+                    elif "extracted_text" in content and content["extracted_text"]:
+                        content_text = content["extracted_text"][:1000]
+                    elif "educational_content" in content:
+                        edu_content = content["educational_content"]
+                        if isinstance(edu_content, dict):
+                            full_text = edu_content.get("full_text_content", "") or edu_content.get("text", "")
+                            content_text = full_text[:1000] if full_text else ""
+
+                    # Also include AI analysis if available
                     analysis = result.get('analysis', {}).get('ai_analysis', '')
-                    if analysis:
-                        all_analyses.append(f"{agent_type.upper()} Analysis: {analysis[:500]}...")
-            
+
+                    if content_text or analysis:
+                        entry = f"{agent_type.upper()} Content:\n"
+                        if content_text:
+                            entry += f"Content Preview: {content_text}\n"
+                        if analysis:
+                            entry += f"AI Analysis: {analysis[:500]}\n"
+                        all_analyses.append(entry)
+
             if not all_analyses:
-                return {"comprehensive_analysis": "No analysis available", "content_summary": content_summary}
+                return {"comprehensive_analysis": "No content available for analysis", "content_summary": content_summary}
             
             # Generate comprehensive analysis using AI
             prompt = f"""
@@ -1507,13 +1531,13 @@ Format as clear, structured text suitable for comprehensive course material anal
 
                             # Extract text from various content types
                             text = ""
-                            if "text" in content:
+                            if "text" in content and content["text"]:
                                 text = content["text"]
-                            elif "text_content" in content:
+                            elif "text_content" in content and content["text_content"]:
                                 text = content["text_content"]
-                            elif "transcript" in content:
+                            elif "transcript" in content and content["transcript"]:
                                 text = content["transcript"]
-                            elif "extracted_text" in content:
+                            elif "extracted_text" in content and content["extracted_text"]:
                                 # For images with extracted text
                                 text = content["extracted_text"]
                             elif "educational_content" in content:
@@ -1523,6 +1547,14 @@ Format as clear, structured text suitable for comprehensive course material anal
                                     text = edu_content.get("full_text_content", "") or edu_content.get("text", "")
                                 else:
                                     text = str(edu_content)
+
+                            # If no content in content field, check analysis field (for videos)
+                            if not text:
+                                analysis = result.get("analysis", {})
+                                if isinstance(analysis, dict):
+                                    ai_analysis = analysis.get("ai_analysis", "")
+                                    if ai_analysis:
+                                        text = ai_analysis
 
                             if text:
                                 all_content.append(f"=== {agent_type.upper()} CONTENT ===\n{text}\n")
@@ -1923,9 +1955,19 @@ Format as JSON:
                     logger.debug(f"Extracted comprehensive content: {len(kb_content)} characters")
                     logger.debug(f"   Content preview: {kb_content[:200]}")
                 else:
-                    logger.warning("Comprehensive extraction returned empty content")
+                    logger.warning("Comprehensive extraction returned empty content from processed_results")
 
-            # Fallback if no content found
+            # Fallback to local KB storage if processed_results didn't work
+            if not kb_content:
+                logger.info("Falling back to local KB storage for content retrieval")
+                kb_content = await self._retrieve_kb_content_from_memory(knowledge_base_id, "unknown")
+
+                if kb_content:
+                    logger.info(f"✅ Retrieved {len(kb_content)} characters from local KB storage")
+                else:
+                    logger.warning("❌ No content found in local KB storage either")
+
+            # Final fallback if still no content found
             if not kb_content:
                 logger.warning("No educational content available, using generic fallback")
                 kb_content = "No specific content available. Generate general educational questions."
@@ -2449,6 +2491,25 @@ def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
+    # Configure logging
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / "agent.log"
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()  # Also print to console
+        ]
+    )
+
+    logger.info("=" * 80)
+    logger.info("🚀 Starting Full Course Processor Agent")
+    logger.info(f"📁 Logging to: {log_file.absolute()}")
+    logger.info("=" * 80)
+
     # Add CORS middleware before running the app
     try:
         from fastapi.middleware.cors import CORSMiddleware

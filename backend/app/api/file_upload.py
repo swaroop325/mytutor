@@ -42,7 +42,7 @@ async def upload_single_file(
     
     try:
         file_info = await file_upload_service.save_file(file, user_id)
-        
+
         return FileUploadResponse(
             file_id=file_info.id,
             filename=file_info.filename,
@@ -55,6 +55,9 @@ async def upload_single_file(
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        print(f"❌ Upload error: {e}")
+        print(f"Traceback:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 

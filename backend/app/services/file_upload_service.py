@@ -3,11 +3,14 @@ import uuid
 import hashlib
 import mimetypes
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from fastapi import UploadFile, HTTPException
 from app.schemas.file_upload import FileCategory, FileStatus, UploadedFileInfo, FileValidationError
+
+logger = logging.getLogger(__name__)
 
 
 class FileUploadService:

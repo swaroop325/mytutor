@@ -1,1 +1,126 @@
-{}
+{
+  "e9329612-6f07-4ed0-bf5d-acc8372e0d70": {
+    "id": "e9329612-6f07-4ed0-bf5d-acc8372e0d70",
+    "knowledge_base_id": "0456bb08-9b38-4c76-9cd6-e2b887655d3d",
+    "user_id": "admin",
+    "created_at": "2025-10-10T15:31:20.956483",
+    "status": "active",
+    "current_question": {
+      "question": "Which unique characteristic best describes the 'go fmt' command in relation to other programming language toolchains?",
+      "options": {
+        "A": "It's an enforced code formatter that's built directly into the core language tooling",
+        "B": "It's an optional debugging tool for finding syntax errors",
+        "C": "It's a package management system for Go modules",
+        "D": "It's a documentation generator for Go packages"
+      },
+      "correct_answer": "A",
+      "explanation": "The 'go fmt' command is particularly unique because it's a built-in code formatter that comes as part of Go's core toolchain, as shown in the cheat sheet where it's listed as a primary command that 'reformats Go package files.' This represents Go's philosophy of maintaining consistent code style across all projects. Unlike many other programming languages where code formatting is handled by third-party tools or IDE plugins, Go makes this a first-class feature of the language itself. The cheat sheet even notes that it can also be called as 'gofmt', emphasizing its importance in the Go ecosystem. Options B, C, and D are incorrect because debugging is handled by other tools, package management is handled by 'go mod', and documentation is handled by 'go doc' respectively.",
+      "difficulty": "beginner",
+      "topic": "Go Development Tools",
+      "learning_objective": "Understand the unique approach Go takes to code formatting and style consistency through built-in tooling",
+      "type": "mcq"
+    },
+    "questions_answered": 0,
+    "correct_answers": 0,
+    "score": 0.0,
+    "question_types": [
+      "mcq",
+      "open_ended"
+    ],
+    "question_count": 10,
+    "study_time": 0
+  },
+  "f1940d40-d82e-4770-aca5-6cfb2914d878": {
+    "id": "f1940d40-d82e-4770-aca5-6cfb2914d878",
+    "knowledge_base_id": "cd374972-0401-4353-a98e-d366fc2e2d8b",
+    "user_id": "admin",
+    "created_at": "2025-10-10T17:03:55.597510",
+    "status": "active",
+    "current_question": {
+      "question": "Which combination of learning styles and visual elements does this Java tutorial uniquely integrate to support diverse learners?",
+      "options": {
+        "A": "Dark IDE theme with syntax highlighting paired with visual, auditory, and text-based learning",
+        "B": "Light theme coding examples with visual and auditory learning only",
+        "C": "Traditional slideshow format with text-based learning only",
+        "D": "Animated graphics with visual learning and code samples only"
+      },
+      "correct_answer": "A",
+      "explanation": "The content specifically shows a unique integration of multiple learning modalities with modern visual design. The knowledge base indicates a 'Dark IDE theme with syntax highlighting' under visualElements.design, while simultaneously supporting three distinct learning styles: visual learners (through 'Strong visual elements and graphics'), auditory learners (via 'Clear narration'), and text-based learners (through 'On-screen text and code samples'). This comprehensive approach is explicitly detailed in the accessibility.multiModal and accessibility.learningStyles sections. Options B, C, and D are incorrect as they only partially represent the tutorial's multi-modal approach and don't accurately reflect the documented design elements and learning style support.",
+      "difficulty": "beginner",
+      "topic": "Educational Design and Accessibility",
+      "learning_objective": "Understanding how technical content presentation can be optimized for different learning styles while maintaining professional visual standards",
+      "type": "mcq"
+    },
+    "questions_answered": 2,
+    "correct_answers": 1,
+    "score": 50.0,
+    "question_types": [
+      "mcq",
+      "open_ended"
+    ],
+    "question_count": 10,
+    "study_time": 0
+  },
+  "072f0365-5744-491a-a41c-c7a0d1fa2677": {
+    "id": "072f0365-5744-491a-a41c-c7a0d1fa2677",
+    "knowledge_base_id": "17e701f4-74ad-4444-ae1d-d0bbf37991c4",
+    "user_id": "admin",
+    "created_at": "2025-10-10T17:18:29.602817",
+    "status": "active",
+    "current_question": {
+      "question": "Based on Mosh Hamedani's background as presented in the content, what unique aspect sets him apart as a Python instructor?",
+      "options": {
+        "A": "He has taught over three million people coding and software engineering",
+        "B": "He has a YouTube channel called 'Programming with Mosh'",
+        "C": "He is the author of the Python Cheat Sheet",
+        "D": "He has a website called codewithmosh.com"
+      },
+      "correct_answer": "A",
+      "explanation": "According to the 'About the Author' section, Mosh Hamedani has uniquely taught 'over three million how to code or how to become a professional software engineer.' While the other options are true facts about him (having a YouTube channel, creating the cheat sheet, and running codewithmosh.com), the scale of his teaching impact - reaching over three million people - is the most distinctive aspect that sets him apart as an instructor. This is particularly significant as it demonstrates his extensive experience in making programming concepts accessible to a large audience, which aligns with his stated mission 'to make software engineering simple and accessible to everyone.'",
+      "difficulty": "beginner",
+      "topic": "Instructor Background/Credibility",
+      "learning_objective": "To understand the qualifications and experience of the course instructor, which helps establish credibility of the learning material",
+      "type": "mcq"
+    },
+    "questions_answered": 0,
+    "correct_answers": 0,
+    "score": 0.0,
+    "question_types": [
+      "mcq",
+      "open_ended"
+    ],
+    "question_count": 10,
+    "study_time": 0
+  },
+  "11fb9a43-a92c-46ae-9731-8a0a1a30783c": {
+    "id": "11fb9a43-a92c-46ae-9731-8a0a1a30783c",
+    "knowledge_base_id": "5202b559-6ec3-47af-9043-14e555e6bd5b",
+    "user_id": "admin",
+    "created_at": "2025-10-10T17:25:21.952706",
+    "status": "active",
+    "current_question": {
+      "question": "What does the content suggest is meant by a 'yak-shave' in data science projects?",
+      "options": {
+        "A": "Unnecessary work that distracts from the main objective",
+        "B": "A specialized data cleaning technique",
+        "C": "A method for optimizing Python scripts",
+        "D": "A way to organize jupyter notebooks"
+      },
+      "correct_answer": "A",
+      "explanation": "According to the key insights section of the knowledge base, 'yak-shaves' are specifically mentioned in the context of things to avoid, described as 'unnecessary work' in data science projects. The content emphasizes practical tips for achieving faster insights and fewer 'yak-shaves,' suggesting it refers to distracting or unnecessary work that doesn't contribute directly to the project's goals. This is an important concept in workflow optimization, which is a major theme of the audio content. The other options, while related to data science, are not what the term 'yak-shave' refers to in this context. Understanding this concept is crucial for improving workflow efficiency, which is one of the educational objectives of the content.",
+      "difficulty": "beginner",
+      "topic": "Data Science Workflow Optimization",
+      "learning_objective": "To understand common terminology and concepts related to workflow inefficiencies in data science projects",
+      "type": "mcq"
+    },
+    "questions_answered": 0,
+    "correct_answers": 0,
+    "score": 0.0,
+    "question_types": [
+      "mcq",
+      "open_ended"
+    ],
+    "question_count": 10,
+    "study_time": 0
+  }
+}

@@ -1,1 +1,62 @@
-{}
+{
+  "bb5fab32-8fcf-46d3-b814-91c06ee8edb6": {
+    "id": "bb5fab32-8fcf-46d3-b814-91c06ee8edb6",
+    "filename": "20251010_145123_ac63b11c.png",
+    "original_filename": "go.png",
+    "file_size": 384466,
+    "content_type": "image/png",
+    "category": "image",
+    "status": "completed",
+    "upload_path": "uploads/image/20251010_145123_ac63b11c.png",
+    "file_path": "uploads/image/20251010_145123_ac63b11c.png",
+    "user_id": "admin",
+    "created_at": "2025-10-10T14:51:23.023494",
+    "processed_at": null,
+    "error_message": null,
+    "metadata": {
+      "user_id": "admin",
+      "file_hash": "1bb1cb4633453d81a1c837eed47b2db0bd8c3ffa811b0a548dac917494e2392b",
+      "upload_method": "direct"
+    }
+  },
+  "1e191b99-5bc1-4c01-897a-fcc5e519ccc1": {
+    "id": "1e191b99-5bc1-4c01-897a-fcc5e519ccc1",
+    "filename": "20251010_145138_f993c819.png",
+    "original_filename": "go.png",
+    "file_size": 384466,
+    "content_type": "image/png",
+    "category": "image",
+    "status": "completed",
+    "upload_path": "uploads/image/20251010_145138_f993c819.png",
+    "file_path": "uploads/image/20251010_145138_f993c819.png",
+    "user_id": "admin",
+    "created_at": "2025-10-10T14:51:38.421909",
+    "processed_at": null,
+    "error_message": null,
+    "metadata": {
+      "user_id": "admin",
+      "file_hash": "1bb1cb4633453d81a1c837eed47b2db0bd8c3ffa811b0a548dac917494e2392b",
+      "upload_method": "direct"
+    }
+  },
+  "18677716-ed88-44eb-95e0-d71aba022103": {
+    "id": "18677716-ed88-44eb-95e0-d71aba022103",
+    "filename": "20251010_145220_b8e6eb63.png",
+    "original_filename": "go.png",
+    "file_size": 384466,
+    "content_type": "image/png",
+    "category": "image",
+    "status": "completed",
+    "upload_path": "uploads/image/20251010_145220_b8e6eb63.png",
+    "file_path": "uploads/image/20251010_145220_b8e6eb63.png",
+    "user_id": "admin",
+    "created_at": "2025-10-10T14:52:20.286356",
+    "processed_at": null,
+    "error_message": null,
+    "metadata": {
+      "user_id": "admin",
+      "file_hash": "1bb1cb4633453d81a1c837eed47b2db0bd8c3ffa811b0a548dac917494e2392b",
+      "upload_method": "direct"
+    }
+  }
+}

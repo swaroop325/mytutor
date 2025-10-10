@@ -5,6 +5,7 @@ Handles multi-agent processing and training interface.
 import uuid
 import json
 import os
+import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from enum import Enum
@@ -14,6 +15,8 @@ from pathlib import Path
 
 from app.services.agent_client import agent_client
 from app.services.file_upload_service import file_upload_service
+
+logger = logging.getLogger(__name__)
 
 
 class ProcessingStatus(str, Enum):
