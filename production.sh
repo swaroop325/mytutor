@@ -287,6 +287,7 @@ if [ "$HEALTH_OK" = true ]; then
                     echo $! > ../pids/backend.pid && cd ..
                     ;;
                 "frontend")
+                    kill_port 5173 &>/dev/null
                     cd frontend && \
                     nohup npm run preview -- --host 0.0.0.0 --port 5173 > ../logs/frontend.log 2>&1 & \
                     echo $! > ../pids/frontend.pid && cd ..
