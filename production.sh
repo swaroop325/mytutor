@@ -52,8 +52,7 @@ echo ""
 echo -e "${CYAN}🔍 Checking and cleaning up ports...${NC}"
 kill_port 8080  # AgentCore
 kill_port 8000  # Backend
-kill_port 5173  # Frontend (dev)
-kill_port 4173  # Frontend (production)
+kill_port 5173  # Frontend (same port for dev and production)
 echo -e "${GREEN}✅ All ports ready${NC}"
 echo ""
 
@@ -150,8 +149,8 @@ fi
 echo -e "${YELLOW}   Building production bundle...${NC}"
 npm run build
 
-# Start production preview server
-nohup npm run preview -- --host 0.0.0.0 --port 4173 > ../logs/frontend.log 2>&1 &
+# Start production preview server (using same port as dev: 5173)
+nohup npm run preview -- --host 0.0.0.0 --port 5173 > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo $FRONTEND_PID > ../pids/frontend.pid
 echo -e "${GREEN}✅ Frontend started (PID: $FRONTEND_PID)${NC}"
@@ -193,7 +192,7 @@ if [ "$HEALTH_OK" = true ]; then
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo -e "${CYAN}📍 Service URLs:${NC}"
-    echo -e "   ${YELLOW}Frontend:${NC}     http://localhost:4173"
+    echo -e "   ${YELLOW}Frontend:${NC}     http://localhost:5173"
     echo -e "   ${YELLOW}Backend API:${NC}  http://localhost:8000"
     echo -e "   ${YELLOW}API Docs:${NC}     http://localhost:8000/docs"
     echo -e "   ${YELLOW}AgentCore:${NC}    http://localhost:8080"
@@ -276,7 +275,7 @@ if [ "$HEALTH_OK" = true ]; then
                     ;;
                 "frontend")
                     cd frontend && \
-                    nohup npm run preview -- --host 0.0.0.0 --port 4173 > ../logs/frontend.log 2>&1 & \
+                    nohup npm run preview -- --host 0.0.0.0 --port 5173 > ../logs/frontend.log 2>&1 & \
                     echo $! > ../pids/frontend.pid && cd ..
                     ;;
             esac
