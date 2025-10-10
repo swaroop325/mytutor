@@ -226,7 +226,15 @@ if [ "$HEALTH_OK" = true ]; then
     else
         # MONITORING ENABLED BY DEFAULT
         echo -e "${CYAN}👁️  Monitoring enabled - services will auto-restart if they crash${NC}"
-        echo -e "${YELLOW}⌨️  Press Ctrl+C to stop all services${NC}"
+
+        # Check if running under nohup (for EC2/server deployments)
+        if [ -t 1 ]; then
+            echo -e "${YELLOW}⌨️  Press Ctrl+C to stop all services${NC}"
+        else
+            echo -e "${CYAN}🖥️  Running in background mode (EC2/server)${NC}"
+            echo -e "${YELLOW}💡 Monitor logs: tail -f logs/monitor.log${NC}"
+            echo -e "${YELLOW}💡 Stop services: ./stop.sh${NC}"
+        fi
         echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
 
@@ -237,11 +245,16 @@ if [ "$HEALTH_OK" = true ]; then
         RESTART_COUNT[frontend]=0
         MAX_RESTARTS=5
         CHECK_INTERVAL=10
+        MONITOR_LOG="logs/monitor.log"
+
+        # Initialize monitor log
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Monitoring started" >> $MONITOR_LOG
 
         # Cleanup handler
         cleanup_monitor() {
-            echo ""
-            echo -e "${YELLOW}🛑 Shutting down all services...${NC}"
+            echo "" | tee -a $MONITOR_LOG
+            echo -e "${YELLOW}🛑 Shutting down all services...${NC}" | tee -a $MONITOR_LOG
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Monitoring stopped - shutting down services" >> $MONITOR_LOG
             ./stop.sh
             exit 0
         }
@@ -256,11 +269,11 @@ if [ "$HEALTH_OK" = true ]; then
             RESTART_COUNT[$service]=$((RESTART_COUNT[$service] + 1))
 
             if [ ${RESTART_COUNT[$service]} -gt $MAX_RESTARTS ]; then
-                echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name crashed $MAX_RESTARTS times. Stopping.${NC}"
+                echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name crashed $MAX_RESTARTS times. Stopping.${NC}" | tee -a $MONITOR_LOG
                 cleanup_monitor
             fi
 
-            echo -e "${YELLOW}[$(date '+%H:%M:%S')] ⚠️  $name crashed! Restarting (${RESTART_COUNT[$service]}/$MAX_RESTARTS)...${NC}"
+            echo -e "${YELLOW}[$(date '+%H:%M:%S')] ⚠️  $name crashed! Restarting (${RESTART_COUNT[$service]}/$MAX_RESTARTS)...${NC}" | tee -a $MONITOR_LOG
 
             case $service in
                 "agent")
@@ -282,7 +295,7 @@ if [ "$HEALTH_OK" = true ]; then
 
             sleep 2
             new_pid=$(cat "pids/${service}.pid" 2>/dev/null)
-            echo -e "${GREEN}[$(date '+%H:%M:%S')] ✅ $name restarted (PID: $new_pid)${NC}"
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] ✅ $name restarted (PID: $new_pid)${NC}" | tee -a $MONITOR_LOG
         }
 
         # Health check function
@@ -292,20 +305,20 @@ if [ "$HEALTH_OK" = true ]; then
             local pid_file="pids/${service}.pid"
 
             if [ ! -f "$pid_file" ]; then
-                echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name: PID file missing${NC}"
+                echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name: PID file missing${NC}" | tee -a $MONITOR_LOG
                 restart_service "$service" "$name"
                 return
             fi
 
             local pid=$(cat "$pid_file" 2>/dev/null)
             if ! ps -p $pid > /dev/null 2>&1; then
-                echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name: Process died (PID: $pid)${NC}"
+                echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name: Process died (PID: $pid)${NC}" | tee -a $MONITOR_LOG
                 restart_service "$service" "$name"
             fi
         }
 
         # Start monitoring
-        echo -e "${GREEN}✅ Monitoring started. Checking every ${CHECK_INTERVAL}s...${NC}"
+        echo -e "${GREEN}✅ Monitoring started. Checking every ${CHECK_INTERVAL}s...${NC}" | tee -a $MONITOR_LOG
         echo ""
 
         while true; do
