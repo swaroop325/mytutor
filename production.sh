@@ -358,23 +358,34 @@ if [ "$HEALTH_OK" = true ]; then
                     elif [ ! -d "frontend/dist" ]; then
                         echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: frontend/dist not found. Build required!" >> $MONITOR_LOG
                         echo -e "${RED}[$(date '+%H:%M:%S')] ❌ Frontend dist directory missing. Cannot restart.${NC}" | tee -a $MONITOR_LOG
-                    elif cd frontend; then
-                        nohup serve -s dist -l 5173 > ../logs/frontend.log 2>&1 &
-                        local frontend_pid=$!
-                        echo $frontend_pid > ../pids/frontend.pid
-                        cd ..
+                    else
+                        # Start serve from project root to avoid subshell PID issues
+                        (cd frontend && nohup serve -s dist -l 5173 > ../logs/frontend.log 2>&1 &)
 
-                        # Verify it actually started
-                        sleep 2
-                        if ps -p $frontend_pid > /dev/null 2>&1; then
-                            restart_success=true
+                        # Wait a moment for the process to start and get its PID
+                        sleep 1
+
+                        # Find the actual serve process PID
+                        local frontend_pid=$(lsof -ti:5173 2>/dev/null | head -1)
+
+                        if [ -n "$frontend_pid" ]; then
+                            echo $frontend_pid > pids/frontend.pid
+                            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Frontend process started with PID: $frontend_pid" >> $MONITOR_LOG
+
+                            # Verify it's still running after a moment
+                            sleep 2
+                            if ps -p $frontend_pid > /dev/null 2>&1; then
+                                restart_success=true
+                            else
+                                echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Frontend process died immediately after start" >> $MONITOR_LOG
+                                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Last 10 lines of frontend.log:" >> $MONITOR_LOG
+                                tail -10 logs/frontend.log >> $MONITOR_LOG 2>&1
+                            fi
                         else
-                            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Frontend process died immediately after start" >> $MONITOR_LOG
+                            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Could not find frontend process on port 5173" >> $MONITOR_LOG
                             echo "[$(date '+%Y-%m-%d %H:%M:%S')] Last 10 lines of frontend.log:" >> $MONITOR_LOG
                             tail -10 logs/frontend.log >> $MONITOR_LOG 2>&1
                         fi
-                    else
-                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Could not cd to frontend directory" >> $MONITOR_LOG
                     fi
                     ;;
             esac
@@ -414,6 +425,18 @@ if [ "$HEALTH_OK" = true ]; then
             if ! ps -p $pid > /dev/null 2>&1; then
                 echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name: Process died (PID: $pid)${NC}" | tee -a $MONITOR_LOG
                 echo "[$(date '+%Y-%m-%d %H:%M:%S')] $name process (PID: $pid) not running" >> $MONITOR_LOG
+
+                # For frontend, check if port is still in use (might indicate PID file issue)
+                if [ "$service" = "frontend" ]; then
+                    local port_pid=$(lsof -ti:5173 2>/dev/null)
+                    if [ -n "$port_pid" ]; then
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARNING: Port 5173 is in use by PID $port_pid (PID file shows $pid)" >> $MONITOR_LOG
+                        # Update PID file with actual running process
+                        echo $port_pid > pids/frontend.pid
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Updated PID file with actual process: $port_pid" >> $MONITOR_LOG
+                        return  # Don't restart, process is actually running
+                    fi
+                fi
 
                 # Log last few lines of service log for debugging
                 local log_file="logs/${service}.log"
