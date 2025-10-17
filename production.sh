@@ -145,12 +145,19 @@ if [ ! -f ".env" ]; then
     cp .env.example .env
 fi
 
+# Install serve if not already installed
+if ! command -v serve &> /dev/null; then
+    echo -e "${YELLOW}   Installing serve (production static file server)...${NC}"
+    npm install -g serve
+fi
+
 # Build for production
 echo -e "${YELLOW}   Building production bundle...${NC}"
 npm run build
 
-# Start production preview server (using same port as dev: 5173)
-nohup npm run preview -- --host 0.0.0.0 --port 5173 > ../logs/frontend.log 2>&1 &
+# Start production server using 'serve' (much more stable than vite preview)
+echo -e "${YELLOW}   Starting production server...${NC}"
+nohup serve -s dist -l 5173 > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo $FRONTEND_PID > ../pids/frontend.pid
 echo -e "${GREEN}✅ Frontend started (PID: $FRONTEND_PID)${NC}"
@@ -289,7 +296,7 @@ if [ "$HEALTH_OK" = true ]; then
                 "frontend")
                     kill_port 5173 &>/dev/null
                     cd frontend && \
-                    nohup npm run preview -- --host 0.0.0.0 --port 5173 > ../logs/frontend.log 2>&1 & \
+                    nohup serve -s dist -l 5173 > ../logs/frontend.log 2>&1 & \
                     echo $! > ../pids/frontend.pid && cd ..
                     ;;
             esac
