@@ -51,6 +51,9 @@ stop_service() {
     fi
 }
 
+# Stop monitor first (if running via production-daemon.sh)
+stop_service "pids/monitor.pid" "Monitor"
+
 # Stop all services
 stop_service "pids/agent.pid" "AgentCore"
 stop_service "pids/backend.pid" "Backend"

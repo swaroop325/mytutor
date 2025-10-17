@@ -264,13 +264,22 @@ if [ "$HEALTH_OK" = true ]; then
         # Check if running under nohup (for EC2/server deployments)
         if [ -t 1 ]; then
             echo -e "${YELLOW}⌨️  Press Ctrl+C to stop all services${NC}"
+            echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
         else
             echo -e "${CYAN}🖥️  Running in background mode (EC2/server)${NC}"
             echo -e "${YELLOW}💡 Monitor logs: tail -f logs/monitor.log${NC}"
             echo -e "${YELLOW}💡 Stop services: ./stop.sh${NC}"
+            echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+
+            # Detach from terminal to survive SSH disconnect
+            # Redirect stdin from /dev/null
+            exec </dev/null
+
+            # Ignore SIGHUP explicitly
+            trap '' SIGHUP
         fi
-        echo -e "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
 
         # Monitoring configuration
         declare -A RESTART_COUNT
@@ -293,6 +302,7 @@ if [ "$HEALTH_OK" = true ]; then
             exit 0
         }
 
+        # Only trap SIGINT and SIGTERM, NOT SIGHUP (so SSH disconnect doesn't stop services)
         trap cleanup_monitor SIGINT SIGTERM
 
         # Service restart function
