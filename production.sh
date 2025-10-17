@@ -149,17 +149,44 @@ fi
 if ! command -v serve &> /dev/null; then
     echo -e "${YELLOW}   Installing serve (production static file server)...${NC}"
     npm install -g serve
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}   ❌ Failed to install serve${NC}"
+        cd ..
+        exit 1
+    fi
 fi
 
 # Build for production
 echo -e "${YELLOW}   Building production bundle...${NC}"
 npm run build
+if [ $? -ne 0 ]; then
+    echo -e "${RED}   ❌ Frontend build failed${NC}"
+    cd ..
+    exit 1
+fi
+
+# Verify dist directory exists
+if [ ! -d "dist" ]; then
+    echo -e "${RED}   ❌ Build directory 'dist' not found${NC}"
+    cd ..
+    exit 1
+fi
 
 # Start production server using 'serve' (much more stable than vite preview)
 echo -e "${YELLOW}   Starting production server...${NC}"
 nohup serve -s dist -l 5173 > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo $FRONTEND_PID > ../pids/frontend.pid
+
+# Wait a moment and verify process started
+sleep 2
+if ! ps -p $FRONTEND_PID > /dev/null 2>&1; then
+    echo -e "${RED}   ❌ Frontend failed to start. Check logs/frontend.log${NC}"
+    cat ../logs/frontend.log
+    cd ..
+    exit 1
+fi
+
 echo -e "${GREEN}✅ Frontend started (PID: $FRONTEND_PID)${NC}"
 echo -e "${CYAN}   📝 Log: tail -f logs/frontend.log${NC}"
 cd ..
@@ -276,34 +303,91 @@ if [ "$HEALTH_OK" = true ]; then
             RESTART_COUNT[$service]=$((RESTART_COUNT[$service] + 1))
 
             if [ ${RESTART_COUNT[$service]} -gt $MAX_RESTARTS ]; then
-                echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name crashed $MAX_RESTARTS times. Stopping.${NC}" | tee -a $MONITOR_LOG
+                echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name crashed $MAX_RESTARTS times. Stopping all services.${NC}" | tee -a $MONITOR_LOG
                 cleanup_monitor
             fi
 
             echo -e "${YELLOW}[$(date '+%H:%M:%S')] ⚠️  $name crashed! Restarting (${RESTART_COUNT[$service]}/$MAX_RESTARTS)...${NC}" | tee -a $MONITOR_LOG
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Attempting restart of $name" >> $MONITOR_LOG
 
+            # Clean up any stale processes first
             case $service in
                 "agent")
-                    cd agent && source .venv/bin/activate && \
-                    nohup python -u full_course_processor.py > ../logs/agent.log 2>&1 & \
-                    echo $! > ../pids/agent.pid && cd ..
+                    kill_port 8080 &>/dev/null
                     ;;
                 "backend")
-                    cd backend && source venv/bin/activate && \
-                    nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > ../logs/backend.log 2>&1 & \
-                    echo $! > ../pids/backend.pid && cd ..
+                    kill_port 8000 &>/dev/null
                     ;;
                 "frontend")
                     kill_port 5173 &>/dev/null
-                    cd frontend && \
-                    nohup serve -s dist -l 5173 > ../logs/frontend.log 2>&1 & \
-                    echo $! > ../pids/frontend.pid && cd ..
                     ;;
             esac
 
-            sleep 2
-            new_pid=$(cat "pids/${service}.pid" 2>/dev/null)
-            echo -e "${GREEN}[$(date '+%H:%M:%S')] ✅ $name restarted (PID: $new_pid)${NC}" | tee -a $MONITOR_LOG
+            sleep 1
+
+            # Restart the service
+            local restart_success=false
+            case $service in
+                "agent")
+                    if cd agent && source .venv/bin/activate 2>&1 >> $MONITOR_LOG; then
+                        nohup python -u full_course_processor.py > ../logs/agent.log 2>&1 &
+                        echo $! > ../pids/agent.pid
+                        cd ..
+                        restart_success=true
+                    else
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Failed to activate agent venv" >> $MONITOR_LOG
+                        cd ..
+                    fi
+                    ;;
+                "backend")
+                    if cd backend && source venv/bin/activate 2>&1 >> $MONITOR_LOG; then
+                        nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > ../logs/backend.log 2>&1 &
+                        echo $! > ../pids/backend.pid
+                        cd ..
+                        restart_success=true
+                    else
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Failed to activate backend venv" >> $MONITOR_LOG
+                        cd ..
+                    fi
+                    ;;
+                "frontend")
+                    # Check if serve is installed
+                    if ! command -v serve &> /dev/null; then
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: 'serve' command not found!" >> $MONITOR_LOG
+                        echo -e "${RED}[$(date '+%H:%M:%S')] ❌ 'serve' not installed. Cannot restart frontend.${NC}" | tee -a $MONITOR_LOG
+                    elif [ ! -d "frontend/dist" ]; then
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: frontend/dist not found. Build required!" >> $MONITOR_LOG
+                        echo -e "${RED}[$(date '+%H:%M:%S')] ❌ Frontend dist directory missing. Cannot restart.${NC}" | tee -a $MONITOR_LOG
+                    elif cd frontend; then
+                        nohup serve -s dist -l 5173 > ../logs/frontend.log 2>&1 &
+                        local frontend_pid=$!
+                        echo $frontend_pid > ../pids/frontend.pid
+                        cd ..
+
+                        # Verify it actually started
+                        sleep 2
+                        if ps -p $frontend_pid > /dev/null 2>&1; then
+                            restart_success=true
+                        else
+                            echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Frontend process died immediately after start" >> $MONITOR_LOG
+                            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Last 10 lines of frontend.log:" >> $MONITOR_LOG
+                            tail -10 logs/frontend.log >> $MONITOR_LOG 2>&1
+                        fi
+                    else
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Could not cd to frontend directory" >> $MONITOR_LOG
+                    fi
+                    ;;
+            esac
+
+            if [ "$restart_success" = true ]; then
+                sleep 2
+                new_pid=$(cat "pids/${service}.pid" 2>/dev/null)
+                echo -e "${GREEN}[$(date '+%H:%M:%S')] ✅ $name restarted (PID: $new_pid)${NC}" | tee -a $MONITOR_LOG
+            else
+                echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name restart FAILED. Check logs.${NC}" | tee -a $MONITOR_LOG
+                # Treat failed restart as additional crash
+                RESTART_COUNT[$service]=$((RESTART_COUNT[$service] + 1))
+            fi
         }
 
         # Health check function
@@ -314,13 +398,30 @@ if [ "$HEALTH_OK" = true ]; then
 
             if [ ! -f "$pid_file" ]; then
                 echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name: PID file missing${NC}" | tee -a $MONITOR_LOG
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] $name PID file not found at $pid_file" >> $MONITOR_LOG
                 restart_service "$service" "$name"
                 return
             fi
 
             local pid=$(cat "$pid_file" 2>/dev/null)
+            if [ -z "$pid" ]; then
+                echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name: Empty PID file${NC}" | tee -a $MONITOR_LOG
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] $name PID file is empty" >> $MONITOR_LOG
+                restart_service "$service" "$name"
+                return
+            fi
+
             if ! ps -p $pid > /dev/null 2>&1; then
                 echo -e "${RED}[$(date '+%H:%M:%S')] ❌ $name: Process died (PID: $pid)${NC}" | tee -a $MONITOR_LOG
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] $name process (PID: $pid) not running" >> $MONITOR_LOG
+
+                # Log last few lines of service log for debugging
+                local log_file="logs/${service}.log"
+                if [ -f "$log_file" ]; then
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Last 5 lines of $log_file:" >> $MONITOR_LOG
+                    tail -5 "$log_file" >> $MONITOR_LOG 2>&1
+                fi
+
                 restart_service "$service" "$name"
             fi
         }
